@@ -1,0 +1,25 @@
+{
+  "name": "bonefitter",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Fit lines, planes, spheres and cylinders to STL and PLY meshes of bones, in the browser.",
+  "type": "module",
+  "scripts": {
+    "test": "node --test \"tests/unit/*.test.js\"",
+    "test:e2e": "node --test --test-concurrency=1 \"tests/e2e/*.test.js\"",
+    "test:all": "npm test && npm run test:e2e"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/BenceViola/BoneFitter.git"
+  },
+  "homepage": "https://benceviola.github.io/BoneFitter/",
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0",
+    "three": "0.170.0",
+    "three-mesh-bvh": "0.8.3"
+  }
+}

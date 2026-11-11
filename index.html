@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="description" content="Fit lines, planes, spheres and cylinders to STL and PLY meshes of bones, in the browser.">
+<title>BoneFitter</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans+Condensed:wght@600&family=IBM+Plex+Sans:wght@400;500;600&display=swap">
+<style>
+  /* Layout: object list and measurements on the left; on the right a toolbar
+     above the 3D view. Colours and type are those of Landmarker3D, so the
+     tools look like one family. */
+  :root {
+    --bg: #f3f4f6;
+    --surface: #ffffff;
+    --fg: #1a1e26;
+    --muted: #5b6372;
+    --line: #dce0e7;
+    --accent: #2a52c4;
+    --accent-fg: #ffffff;
+    --accent-soft: #e7edfb;
+    --viewport: #e6e9ee;
+    --danger: #a8261d;
+    --danger-bg: #fbebeb;
+    --note-bg: #f9eeda;
+    --note-fg: #6b4a0d;
+    --selected: #e0337a;
+
+    --font-display: "IBM Plex Sans Condensed", "Arial Narrow", system-ui, sans-serif;
+    --font-body: "IBM Plex Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+    --font-data: "IBM Plex Mono", ui-monospace, "SFMono-Regular", Menlo, monospace;
+
+    --radius: 6px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #14171c;
+      --surface: #1b1f26;
+      --fg: #e6e9ef;
+      --muted: #9ba3b1;
+      --line: #2b313b;
+      --accent: #8ba7ff;
+      --accent-fg: #0c1120;
+      --accent-soft: #1f2840;
+      --viewport: #0e1115;
+      --danger: #ff9a90;
+      --danger-bg: #3a1d1d;
+      --note-bg: #3a2f17;
+      --note-fg: #f2d79c;
+      --selected: #ff6aa5;
+      color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #14171c;
+    --surface: #1b1f26;
+    --fg: #e6e9ef;
+    --muted: #9ba3b1;
+    --line: #2b313b;
+    --accent: #8ba7ff;
+    --accent-fg: #0c1120;
+    --accent-soft: #1f2840;
+    --viewport: #0e1115;
+    --danger: #ff9a90;
+    --danger-bg: #3a1d1d;
+    --note-bg: #3a2f17;
+    --note-fg: #f2d79c;
+    --selected: #ff6aa5;
+    color-scheme: dark;
+  }
+
+  /* Declared here, not left to the host: on a plain host (GitHub Pages) the
+     busy overlay and messages would otherwise never hide. */
+  [hidden] { display: none !important; }
+  html, body { height: 100%; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--fg);
+    font-family: var(--font-body);
+    font-size: 14px;
+    line-height: 1.45;
+  }
+  .mono { font-family: var(--font-data); font-variant-numeric: tabular-nums; }
+  .muted { color: var(--muted); }
+
+  .app {
+    display: grid;
+    grid-template-columns: 320px minmax(0, 1fr);
+    height: 100%;
+  }
+
+  /* ---- Left: objects and properties ---- */
+  .panel {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    min-height: 0;
+    overflow-x: hidden; /* nothing may slide under the 3D view, which would swallow its clicks */
+    border-right: 1px solid var(--line);
+  }
+  .brand { padding: 16px 16px 12px max(16px, env(safe-area-inset-left, 0px)); }
+  .brand h1 {
+    margin: 0;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 22px;
+    letter-spacing: 0.01em;
+    display: flex;
+    align-items: baseline;
+    gap: 8px;
+  }
+  .brand .ver { font-family: var(--font-data); font-size: 11px; font-weight: 400; color: var(--muted); }
+
+  .panel h2 {
+    margin: 0;
+    padding: 10px 16px 6px max(16px, env(safe-area-inset-left, 0px));
+    font-size: 11px;
+    font-weight: 600;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+  .objects { flex: 1 1 0; min-height: 120px; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
+  .tree-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 12px max(8px, env(safe-area-inset-left, 0px)); }
+  .properties { flex: 0 1 auto; max-height: 50%; overflow-y: auto; border-top: 1px solid var(--line); padding-bottom: 12px; }
+
+  .tree, .tree ul { list-style: none; margin: 0; padding: 0; }
+  .tree-row {
+    display: flex;
+    align-items: center;
+    gap: 2px;
+    padding-left: calc(var(--depth, 0) * 16px);
+    border-radius: var(--radius);
+  }
+  .tree-row:hover { background: var(--accent-soft); }
+  .tree-row.is-selected { background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--selected); }
+  .tree-row.is-off .tree-name { color: var(--muted); }
+  .tree-row button {
+    border: 0;
+    background: none;
+    color: inherit;
+    font: inherit;
+    cursor: pointer;
+    border-radius: 4px;
+  }
+  .twist, .eye, .twist-gap { flex: none; width: 24px; height: 30px; display: grid; place-items: center; padding: 0; color: var(--muted); }
+  .eye { width: 30px; }
+  .twist svg { transition: transform 0.12s; }
+  .twist[aria-expanded="true"] svg { transform: rotate(90deg); }
+  .tree-name {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    height: 30px;
+    padding: 0 4px;
+    text-align: left;
+    font-size: 13px;
+  }
+  .tree-name .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tree-name .count { margin-left: auto; font: 11.5px var(--font-data); color: var(--muted); }
+  .tree-name .icon { flex: none; color: var(--muted); }
+  .tree-row[data-status="placed"] .icon { color: #2f63e0; }
+  .tree-row[data-status="estimated"] .icon { color: #d98a00; }
+  .tree-row.is-selected .icon { color: var(--selected); }
+  .icon, .twist svg, .eye svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linecap: round; stroke-linejoin: round; }
+  .tree-empty, .props-empty { margin: 0; padding: 4px 16px 0 max(16px, env(safe-area-inset-left, 0px)); font-size: 13px; color: var(--muted); }
+  .tree-empty { padding-left: 8px; }
+
+  .props-head { display: flex; align-items: center; gap: 8px; padding: 0 16px 0 max(16px, env(safe-area-inset-left, 0px)); }
+  .props-head input { flex: 1; min-width: 0; }
+  .props-kind { padding: 2px 16px 6px max(16px, env(safe-area-inset-left, 0px)); font-size: 12px; color: var(--muted); }
+  .props-list { margin: 0; padding: 0 16px 0 max(16px, env(safe-area-inset-left, 0px)); display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 3px 12px; font-size: 13px; }
+  .props-list dt { color: var(--muted); }
+  .props-list dd { margin: 0; text-align: right; overflow-wrap: anywhere; }
+  .props-list dd.mono { font-size: 12px; }
+  .props-actions { display: flex; gap: 6px; padding: 10px 16px 0 max(16px, env(safe-area-inset-left, 0px)); }
+
+  /* ---- Buttons, inputs, messages ---- */
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-height: 34px;
+    padding: 0 12px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--fg);
+    font: 500 13px/1 var(--font-body);
+    cursor: pointer;
+    white-space: nowrap;
+  }
+  .btn:hover { border-color: var(--muted); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
+  .btn.primary:hover { filter: brightness(1.08); }
+  .btn.small { min-height: 28px; padding: 0 10px; font-size: 12.5px; }
+  .btn:focus-visible, input:focus-visible, .tree-row button:focus-visible, .viewbar button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .file-input { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
+  .file-input:focus-visible + label { outline: 2px solid var(--accent); outline-offset: 2px; }
+  input[type="text"] {
+    min-height: 30px;
+    padding: 4px 8px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    color: var(--fg);
+    font: 500 13px/1.35 var(--font-body);
+  }
+
+  .message {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin: 0 16px 12px max(16px, env(safe-area-inset-left, 0px));
+    padding: 10px 12px;
+    border-radius: var(--radius);
+    font-size: 13px;
+  }
+  .message.error { background: var(--danger-bg); color: var(--danger); }
+  .message.note { background: var(--note-bg); color: var(--note-fg); }
+  .message p { margin: 0; }
+  .message .btn { align-self: flex-start; background: transparent; border-color: currentColor; color: inherit; }
+
+  /* ---- Right: toolbar and 3D view ---- */
+  .work { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
+  .toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    padding: 8px calc(12px + env(safe-area-inset-right, 0px)) 8px 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .toolbar .spacer { flex: 1; }
+  .viewbar { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--radius); }
+  .viewbar button {
+    min-width: 30px;
+    height: 28px;
+    padding: 0 6px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--fg);
+    font: 500 12px var(--font-data);
+    cursor: pointer;
+  }
+  .viewbar button:hover { background: var(--accent-soft); }
+  .viewbar .sep { width: 1px; margin: 4px 2px; background: var(--line); }
+  .viewbar .fit { font-family: var(--font-body); }
+
+  .stage {
+    position: relative;
+    min-width: 0;
+    min-height: 0;
+    background: var(--viewport);
+    overflow: hidden;
+    touch-action: none;
+  }
+  .stage canvas { display: block; width: 100%; height: 100%; }
+  .stage-empty {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    margin: 0;
+    padding: 24px;
+    text-align: center;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .space-note {
+    position: absolute;
+    left: 12px;
+    bottom: 10px;
+    margin: 0;
+    font-family: var(--font-data);
+    font-size: 11px;
+    color: var(--muted);
+    pointer-events: none;
+  }
+  .busy {
+    position: absolute;
+    inset: 0;
+    z-index: 5;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--viewport) 70%, transparent);
+  }
+  .busy-box {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: var(--radius);
+    background: var(--surface);
+    border: 1px solid var(--line);
+    font-size: 13px;
+  }
+  .spinner {
+    width: 14px;
+    height: 14px;
+    border-radius: 50%;
+    border: 2px solid var(--line);
+    border-top-color: var(--accent);
+    animation: spin 0.8s linear infinite;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .drop {
+    position: fixed;
+    inset: 0;
+    z-index: 20;
+    display: grid;
+    place-items: center;
+    background: color-mix(in srgb, var(--bg) 80%, transparent);
+    pointer-events: none;
+  }
+  .drop-box {
+    padding: 28px 36px;
+    border: 2px dashed var(--accent);
+    border-radius: 10px;
+    background: var(--surface);
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 20px;
+    color: var(--accent);
+  }
+
+  @media (max-width: 760px) {
+    .app { grid-template-columns: minmax(0, 1fr); grid-template-rows: 62vh auto; height: auto; }
+    .work { order: -1; }
+    .panel { border-right: 0; }
+    .objects { flex: none; }
+    .tree-scroll, .properties { overflow: visible; max-height: none; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .twist svg { transition: none; }
+    .spinner { animation-duration: 2.4s; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <aside class="panel">
+    <header class="brand">
+      <h1>BoneFitter <span class="ver">v0.1</span></h1>
+    </header>
+
+    <div id="message" class="message" role="alert" hidden></div>
+
+    <section class="objects" aria-labelledby="objects-h">
+      <h2 id="objects-h">Objects</h2>
+      <div class="tree-scroll" id="tree"></div>
+    </section>
+
+    <section class="properties" aria-labelledby="props-h">
+      <h2 id="props-h">Properties</h2>
+      <div id="properties"></div>
+    </section>
+  </aside>
+
+  <div class="work">
+    <div class="toolbar" role="toolbar" aria-label="Tools">
+      <input type="file" id="file-input" class="file-input" accept=".stl,.ply,.json" multiple>
+      <label for="file-input" class="btn primary" title="Open meshes (STL, PLY) and landmark files (.lmk.json)">Open…</label>
+      <span class="spacer"></span>
+      <div class="viewbar" role="group" aria-label="View along the axes">
+        <button type="button" data-view="+x" title="View from +X">+X</button>
+        <button type="button" data-view="-x" title="View from −X">−X</button>
+        <button type="button" data-view="+y" title="View from +Y">+Y</button>
+        <button type="button" data-view="-y" title="View from −Y">−Y</button>
+        <button type="button" data-view="+z" title="View from +Z">+Z</button>
+        <button type="button" data-view="-z" title="View from −Z">−Z</button>
+        <span class="sep" aria-hidden="true"></span>
+        <button type="button" class="fit" id="fit-btn" title="Fit everything in the view (F)">Fit</button>
+      </div>
+    </div>
+
+    <main class="stage" id="stage" aria-label="3D view">
+      <p class="stage-empty" id="stage-empty" hidden>Open STL or PLY meshes, or drop them here.</p>
+      <p class="space-note" id="space-note"></p>
+      <div class="busy" id="busy" hidden>
+        <div class="busy-box"><span class="spinner" aria-hidden="true"></span><span id="busy-text"></span></div>
+      </div>
+    </main>
+  </div>
+</div>
+
+<div class="drop" id="drop" hidden><div class="drop-box">Drop meshes or landmark files</div></div>
+
+<script type="importmap">
+{
+  "imports": {
+    "three": "https://cdn.jsdelivr.net/npm/three@0.170.0/build/three.module.js",
+    "three/addons/": "https://cdn.jsdelivr.net/npm/three@0.170.0/examples/jsm/",
+    "three-mesh-bvh": "https://cdn.jsdelivr.net/npm/three-mesh-bvh@0.8.3/build/index.module.js"
+  }
+}
+</script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

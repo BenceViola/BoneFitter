@@ -1,0 +1,51 @@
+name: Deploy to GitHub Pages
+
+# Publishes the site after the tests pass on main:
+#   https://benceviola.github.io/BoneFitter/
+# A failing push never goes live: the site is built from the commit the
+# Tests run just passed on.
+# The repository's Pages source must be "GitHub Actions" (Settings → Pages),
+# so nothing is published without this workflow.
+# It can also be started by hand: Actions → Deploy to GitHub Pages → Run workflow.
+# (Landmarker3D's workflow also publishes an experimental branch under /next/;
+# add that here the same way when this app gets one.)
+on:
+  workflow_run:
+    workflows: [Tests]
+    types: [completed]
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - name: Assemble site (the page and its scripts only, no tests)
+        run: |
+          mkdir -p _site/js
+          cp index.html _site/
+          cp js/*.js _site/js/
+          touch _site/.nojekyll
+          find _site -type f | sort
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: _site
+      - id: deployment
+        uses: actions/deploy-pages@v4
