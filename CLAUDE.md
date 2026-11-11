@@ -2,7 +2,7 @@
 
 Browser app for fitting geometric primitives (lines, planes, spheres, cylinders) to STL/PLY meshes of bones, to quantify structures such as epiphyses and joint surfaces. Sister app of Landmarker3D and landmarker2D: same stack, same look, opened from GitHub Pages, nothing installed, no data leaves the computer. The owner is a morphometrician, not a web developer: explain changes in plain terms.
 
-**State (v0.3):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose). Nothing is fitted, constructed, measured, moved or saved yet. Next: the first fit (see Build order).
+**State (v0.4):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose); spheres can be fitted to regions. Planes, cylinders and lines, constructing, measuring, moving meshes and saving are not built yet.
 
 ## Ground rules (do not break these)
 
@@ -22,8 +22,8 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `index.html` | Page, styles (colour tokens, light and dark), import map |
 | `js/main.js` | Wiring: viewer, panels, toolbar and tool buttons, keyboard, drag and drop, messages |
 | `js/interaction.js` | Mouse and touch in the 3D view: click to select (or to the tool in use), dragging a curve's handle |
-| `js/scene-model.js` | The object tree: nodes (`mesh`, `group`, `point`, `curve`, `region`), attaching, hiding, removing, updating, selecting. No three.js |
-| `js/scene-view.js` | Draws the tree: one three.js object per node, nested as in the tree; markers, curve lines and handles, region tints; what is under the cursor (`pointAt`, `curveAt`, `handleAt`, `regionAt`); the box the camera frames |
+| `js/scene-model.js` | The object tree: nodes (`mesh`, `group`, `point`, `curve`, `region`, `sphere`), attaching, hiding, removing, updating, selecting. No three.js |
+| `js/scene-view.js` | Draws the tree: one three.js object per node, nested as in the tree; markers, curve lines and handles, region tints, fitted spheres (outline and centre mark, drawn through the mesh); what is under the cursor (`pointAt`, `fitAt`, `curveAt`, `handleAt`, `regionAt`); the box the camera frames |
 | `js/viewer.js` | three.js scene, camera, lights, framing; `displayGeometry` (the drawn copy of a mesh) |
 | `js/picking.js` | BVH raycasting over several meshes; hits in the mesh file's coordinates wherever the mesh is |
 | `js/mesh-loader.js` | STL/PLY reading, raw counts, SHA-256, triangle-only checks |
@@ -35,6 +35,8 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `js/curve-engine.js` | Computes a curve node on its mesh: path across the surface, length, centroid. One corner table per mesh, built on first use; cached stretches |
 | `js/region.js` | Which triangles closed curves enclose: a fence along triangle edges following each curve, spreading over the surface, choosing the part. Pure maths on the corner table, no three.js |
 | `js/region-engine.js` | Regions as tree objects: made from closed curves, recomputed when a boundary curve changes, removed with their last boundary |
+| `js/fit.js` | Fitting maths: area-weighted corners of a region's triangles, the geometric sphere fit (algebraic start, then Levenberg–Marquardt), coverage by solid angle. Pure maths, no three.js |
+| `js/fit-engine.js` | Fitted primitives as tree objects: fitted to a region, refitted when it changes, removed with it |
 | `js/curve-tool.js` | The Curve tool as a state machine (`click`, `finish`, `close`, `undo`, `cancel`); no page or mouse, so it is unit-tested |
 | `js/sample.js` | The example mesh shown at start: a toy femur of exact shapes, with its true measurements in `EXAMPLE` |
 
@@ -43,6 +45,8 @@ All changes to the tree go through `SceneModel`, which fires a `change` event (`
 A curve node holds what was clicked (`control_points` with the triangle each is on, `closed`, `path`) in the same form as a curve entry of a landmark file, plus what was computed from that (`line`, `length`, `centroid`, `used`, `warning`). Change a curve only through `CurveEngine.set()` or `refresh()`, so the computed part never goes stale. A curve being drawn is a real node from its first point (`drawing: true`).
 
 A region node holds what it was made from (`boundary`: curve ids, `flipped`) and what was computed from that (`faces`: the file's face numbers in rising order, `faceCount`, `area`, `centroid`, `error`). Change a region only through `RegionEngine` (`create`, `set`, `addBoundary`, `refresh`). The region engine listens to the tree, so moving a curve's point recomputes its regions; because it reacts inside the curve's `update` event, later listeners see the region's `update` before the curve's.
+
+A fitted sphere node holds what it was made from (`source`: the region's id, `method`) and what was computed (`centre`, `radius`, `rms`, `maxDeviation`, `coverage`, `faceCount`, `area`, `error`), in the mesh file's coordinates. Change it only through `FitEngine`. The fit engine reacts to a region's `update`, so a moved curve point flows curve → region → sphere in one go.
 
 This is the pattern for everything that depends on something else (curve → region → fitted primitive): the dependent stores the ids it was made from, an engine recomputes it when those change, and the computed fields are never edited directly.
 
@@ -56,7 +60,7 @@ This is the pattern for everything that depends on something else (curve → reg
 
 ## Deployment
 
-GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.3`) shows which version is live; raise it with each feature that goes live.
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.4`) shows which version is live; raise it with each feature that goes live.
 
 ## Writing for the UI
 
@@ -102,11 +106,21 @@ Raised in the design discussion; check with the owner before building on any of 
 - Removing a boundary curve takes it off its regions; a region left without a boundary is removed with it.
 - While a curve's point is dragged, its regions follow at once on meshes up to 200,000 triangles and wait for the end of the drag on larger ones.
 
+## How sphere fitting works (built in v0.4)
+
+- Sphere button: fits to the selected region; with a closed curve selected, uses its single-boundary region or makes one first.
+- The data are the corners of the region's triangles, each weighted by a third of its triangle's area (corners are the measured points; flat triangles cut inside a curved surface; weighting by area makes uneven meshing not matter).
+- Geometric least squares: algebraic (Kåsa) fit as the start, then Levenberg–Marquardt on the distances, computed relative to the patch's mean and scaled, so far-off scan coordinates lose no precision.
+- Reported: centre, radius, diameter, RMS and largest deviation, coverage (solid angle of the region seen from the centre, as % of the sphere and as the equivalent cap angle), triangles. Below a 30° cap, Properties note that the radius is less certain.
+- No sphere (with the reason) for a flat region (sphere over 200 × wider than the patch), too few triangles, or a region that encloses nothing; it comes back when the region is put right.
+- Drawn as an outline and a centre mark, both through the mesh. A click on the centre mark selects the sphere.
+- Removing a region removes the fits made from it.
+
 ## Build order (agreed)
 
 1. Curves on the mesh: done in v0.2.
 2. Closed curves into regions, shown as a tint on the mesh with area and triangle count: done in v0.3.
-3. The first fit: a sphere on a region of the example's head, checked against `EXAMPLE.head`.
+3. The first fit: a sphere on a region of the example's head, checked against `EXAMPLE.head`: done in v0.4.
 
 ## Templates (kept for later)
 
@@ -119,7 +133,8 @@ A BoneFitter template would list steps (select a region, fit a primitive, constr
 
 ## Not done yet
 
-- Fitting, constructing, measuring, moving meshes, saving and exporting.
+- Fitting planes, cylinders and lines; constructing, measuring, moving meshes, saving and exporting.
+- A deviation map on the mesh, and refitting without faces beyond a tolerance (both proposed).
 - On a finished curve: adding or removing single points, opening or closing it again, and choosing straight (`euclidean`) paths. The engine supports all of these; there are no buttons for them yet.
 - Undo and redo.
 - Opening the curves of a landmark file (read past with a note).

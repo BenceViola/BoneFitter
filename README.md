@@ -6,9 +6,9 @@ A lightweight tool for fitting geometric primitives (lines, planes, spheres, cyl
 
 Nothing to install. Meshes are read on your own computer and never uploaded.
 
-## Where it stands (v0.3)
+## Where it stands (v0.4)
 
-The foundation, curves drawn on a mesh, and regions enclosed by closed curves. Fitting, constructing, measuring and saving come next.
+The foundation, curves drawn on a mesh, regions enclosed by closed curves, and spheres fitted to regions. Planes, cylinders, constructing, measuring and saving come next.
 
 - Opens binary and ASCII **STL** and **PLY** triangle meshes, several at once, each shown where its file puts it.
 - **Objects** (left): every mesh, with what is attached to it nested underneath. Click a name to select it, the eye to hide or show it.
@@ -16,6 +16,7 @@ The foundation, curves drawn on a mesh, and regions enclosed by closed curves. F
 - **Toolbar and 3D view** (right): open files, look along an axis, fit everything in view. Click a mesh or a point in the view to select it.
 - **Curves**: with the Curve tool, click points on a mesh and the app joins them by the shortest path across the surface. A curve can be left open or closed into a loop. It is listed under its mesh, with its length and centroid in Properties, and its clicked points can be dragged afterwards.
 - **Regions**: select a closed curve and press Region to get the part of the mesh it encloses, tinted on the mesh, with its area, triangle count and centroid in Properties. "Use the other side" takes the rest of the surface instead. Further closed curves can be added as boundaries, for a region with a hole or the band between two rings. A region follows its curves when their points are moved. Its edge runs along triangle edges, within about one triangle of the curve.
+- **Spheres**: select a region (or a closed curve) and press Sphere to fit a sphere to it: the best fit by distance to the surface, weighted by area. Properties give its centre, radius and diameter, how well it fits (RMS and largest deviation) and how much of the sphere the region covers. The sphere is refitted when its region changes. On the example's head it gives back the head's centre and radius as built.
 - Opens **landmark files** (`.lmk.json`) from Landmarker3D: the landmarks appear as points attached to the mesh they were placed on, matched by the mesh's SHA-256.
 - Starts with an **example**: a toy femur built from exact shapes, so fits can be checked against known answers.
 
@@ -25,7 +26,7 @@ Coordinates are always in each mesh file's own coordinate system: the app never 
 
 | | |
 |---|---|
-| click | select the point, curve, region or mesh under the cursor |
+| click | select the point, sphere centre, curve, region or mesh under the cursor |
 | drag a white diamond | move a clicked point of the selected curve |
 | drag / right-drag / scroll | rotate / pan / zoom |
 | F, H | fit the view, default view |

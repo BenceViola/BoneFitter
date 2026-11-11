@@ -20,13 +20,15 @@ If Playwright can't download its own Chromium, point the browser tests at an ins
 - `curves.test.js`, `geodesic.test.js`: Landmarker3D's tests of the curve maths and of shortest paths across a surface, unchanged.
 - `curve-engine.test.js`: a curve computed on a real mesh: length against the known answer on a ball, the centroid, preparing a mesh once.
 - `region.test.js`: regions from closed curves: area and centroid against the known answers on a ball (a cap, a ring, a band), the other side, following a moved curve, several boundaries, every case with no inside (a crossing loop, a ring round a handle, a tiny loop), and regions in the 3D view and in Properties.
+- `fit.test.js`: the sphere fit on exact, shallow, far-off and noisy data; the geometric fit against the algebraic one; weights; flat patches; coverage; a million triangles.
+- `fit-engine.test.js`: spheres fitted to regions of the example mesh give back `EXAMPLE.head`, follow their region, show problems, are removed with it; drawing and Properties.
 - `curve-tool.test.js`: the Curve tool click by click (start, add, finish, close, undo, cancel, another mesh), curves and their handles in the 3D view, and a curve in the Properties panel.
 - `scene-view.test.js`: the tree drawn in three.js: source geometry untouched, nesting, the framed box, markers, clicking a marker.
 - `landmark-file.test.js`: reading `.lmk.json` files, every refusal case, matching a file to its mesh.
 - `opening.test.js`: opening meshes and landmark files together, duplicates, the example making way, and what the Properties panel shows and copies.
 - `sample.test.js`: every vertex of the example mesh lies on one of the shapes `EXAMPLE` describes, so the fitting tests can trust those numbers.
 
-**Browser tests** (`tests/e2e/app.test.js`) run the real page in headless Chromium and use it as a person would: opening files, clicking meshes and markers in the 3D view, hiding, renaming, removing, copying numbers, turning the view, drawing curves and dragging their points, making regions and changing them. The page is served exactly as it is on disk, as GitHub Pages serves it, and each test fails if anything is logged to the browser console.
+**Browser tests** (`tests/e2e/app.test.js`) run the real page in headless Chromium and use it as a person would: opening files, clicking meshes and markers in the 3D view, hiding, renaming, removing, copying numbers, turning the view, drawing curves and dragging their points, making regions and changing them, fitting spheres. The page is served exactly as it is on disk, as GitHub Pages serves it, and each test fails if anything is logged to the browser console.
 
 The same tests run on GitHub for every push and pull request (`.github/workflows/test.yml`).
 

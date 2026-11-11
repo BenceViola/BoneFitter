@@ -573,6 +573,131 @@ describe('regions', () => {
   });
 });
 
+describe('fitted spheres', () => {
+  // Loops on the example's head round the point facing the camera in the default view.
+  const unit = (v) => v.map((x) => x / Math.hypot(...v));
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const HOME = unit([0.45, 0.35, 1]);
+  const E1 = unit(cross(HOME, [0, 1, 0]));
+  const E2 = cross(HOME, E1);
+  const R = EXAMPLE.head.radius;
+  const loop = (angle, n = 8) =>
+    Array.from({ length: n }, (_, k) => {
+      const a = (angle * Math.PI) / 180;
+      const t = (2 * Math.PI * k) / n;
+      return EXAMPLE.head.centre.map((c, i) => c + R * (Math.cos(a) * HOME[i] + Math.sin(a) * (Math.cos(t) * E1[i] + Math.sin(t) * E2[i])));
+    });
+  const node = (page, id) =>
+    page.evaluate((i) => {
+      const { faces, line, ...rest } = window.__bf.model.get(i) ?? {};
+      return rest.id ? rest : null;
+    }, id);
+
+  async function drawLoop(page, points) {
+    await page.locator('#curve-btn').click();
+    for (const p of points) await clickAt(page, await onScreen(page, p));
+    await page.keyboard.press('c');
+    await page.locator('#curve-btn').click();
+  }
+
+  test('Sphere on a region gives back the example\'s head: centre and radius as built', async () => {
+    const page = await start();
+    await drawLoop(page, loop(35));
+    await page.locator('#region-btn').click();
+    await page.locator('#sphere-btn').click();
+
+    assert.deepEqual((await treeRows(page)).map((r) => [r.name, r.kind, r.depth, r.selected]), [
+      ['Example femur', 'mesh', 0, false],
+      ['Curve 1', 'curve', 1, false],
+      ['Region 1', 'region', 1, false],
+      ['Sphere 1', 'sphere', 1, true],
+    ]);
+    const p = await properties(page);
+    assert.equal(p.kind, 'Sphere');
+    assert.equal(p.rows['Fitted to'], 'Region 1');
+    assert.deepEqual(['x', 'y', 'z'].map((k) => p.rows[`Centre ${k}`]), EXAMPLE.head.centre.map((v) => v.toFixed(3)));
+    assert.equal(p.rows.Radius, '12.000');
+    assert.equal(p.rows.Diameter, '24.000');
+    assert.equal(p.rows['RMS deviation'], '0.000');
+    assert.equal(p.rows.Coordinates, 'as in example-femur.stl');
+    assert.match(p.rows.Coverage, /% of the sphere \(a cap of 3\d°\)/);
+    assert.equal(await page.locator('#message').isHidden(), true);
+  });
+
+  test('Sphere on a closed curve makes its region first; on nothing it says what to select', async () => {
+    const page = await start();
+    await page.locator('#sphere-btn').click();
+    assert.match(await messageText(page), /Select a region \(or a closed curve\) first/);
+    await drawLoop(page, loop(30));
+    await page.locator('#sphere-btn').click();
+    assert.deepEqual(await names(page), ['Example femur', 'Curve 1', 'Region 1', 'Sphere 1']);
+    assert.equal((await properties(page)).rows.Radius, '12.000');
+    // The curve's existing region is used, not a second one.
+    await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
+    await page.locator('#sphere-btn').click();
+    assert.deepEqual(await names(page), ['Example femur', 'Curve 1', 'Region 1', 'Sphere 1', 'Sphere 2']);
+  });
+
+  test('moving a point of the curve refits the sphere; it stays the head', async () => {
+    const page = await start();
+    await drawLoop(page, loop(25));
+    await page.locator('#sphere-btn').click();
+    const before = await node(page, 's1');
+    await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
+    const from = await onScreen(page, loop(25)[3]);
+    const to = await onScreen(page, loop(50)[3]);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 5 });
+    await page.mouse.up();
+    const after = await node(page, 's1');
+    assert.ok(after.coverage > before.coverage, 'it covers more of the head');
+    assert.ok(after.faceCount > before.faceCount);
+    assert.ok(Math.abs(after.radius - R) < 1e-3);
+  });
+
+  test('a click on the centre mark selects the sphere; Copy numbers gives its row; removing the curve removes it', async () => {
+    const page = await start();
+    await drawLoop(page, loop(30));
+    await page.locator('#sphere-btn').click();
+    await page.locator('#tree .tree-name', { hasText: 'Example femur' }).click();
+    await clickAt(page, await onScreen(page, EXAMPLE.head.centre));
+    assert.equal((await properties(page)).name, 'Sphere 1');
+
+    await page.locator('#prop-copy').click();
+    await page.waitForFunction(() => document.getElementById('prop-copy').textContent !== 'Copy numbers');
+    const [head, row] = (await page.evaluate(() => window.__bf.lastCopied)).split('\n');
+    assert.equal(head, 'name\tfitted_to\tcentre_x\tcentre_y\tcentre_z\tradius\trms_deviation\tmax_deviation\tcoverage\ttriangles');
+    const cells = row.split('\t');
+    assert.deepEqual(cells.slice(0, 2), ['Sphere 1', 'Region 1']);
+    cells.slice(2, 5).forEach((v, i) => assert.ok(Math.abs(Number(v) - EXAMPLE.head.centre[i]) < 1e-3));
+    assert.ok(Math.abs(Number(cells[5]) - R) < 1e-3);
+
+    await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
+    await page.locator('#prop-remove').click();
+    assert.deepEqual(await names(page), ['Example femur']);
+  });
+
+  test('a sphere whose region encloses nothing shows the problem until the curve is put right', async () => {
+    const page = await start();
+    await drawLoop(page, loop(30));
+    await page.locator('#sphere-btn').click();
+    // Drag two points past each other, so the loop crosses itself.
+    await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
+    const pts = loop(30);
+    const a = await onScreen(page, pts[1]);
+    const b = await onScreen(page, pts[5]);
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(b.x + (b.x - a.x) * 0.15, b.y + (b.y - a.y) * 0.15, { steps: 6 });
+    await page.mouse.up();
+    assert.equal((await node(page, 's1')).error, 'region');
+    await page.locator('#tree .tree-name', { hasText: 'Sphere 1' }).click();
+    assert.match(await page.locator('#properties .problem').innerText(), /encloses nothing/);
+    assert.equal((await treeRows(page)).find((r) => r.name === 'Sphere 1').count, '!');
+  });
+});
+
 describe('view', () => {
   test('the axis buttons and F turn and refit the camera', async () => {
     const page = await start();

@@ -1,7 +1,8 @@
 // Mouse and touch in the 3D view.
 //
-//   click                  select what is under the cursor: a point, a curve,
-//                          a region, a mesh, or nothing. With the Curve tool on, the
+//   click                  select what is under the cursor: a point, a
+//                          fitted sphere's centre, a curve, a region, a mesh,
+//                          or nothing. With the Curve tool on, the
 //                          click goes to the tool instead (curve-tool.js).
 //   drag a curve's handle  move that clicked point over its mesh; the curve
 //                          is recomputed as it moves
@@ -96,6 +97,7 @@ export function setupInteraction({ stage, viewer, picker, view, model, engine, r
     // What is drawn on a surface wins over the surface; empty space selects nothing.
     model.select(
       view.pointAt(e.clientX, e.clientY) ??
+        view.fitAt(e.clientX, e.clientY) ??
         view.curveAt(e.clientX, e.clientY) ??
         view.regionAt(e.clientX, e.clientY) ??
         picker.pickAt(e.clientX, e.clientY)?.id ??

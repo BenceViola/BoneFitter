@@ -9,6 +9,7 @@ const ICONS = {
   point: '<circle cx="8" cy="8" r="3" fill="currentColor" stroke="none"/>',
   curve: '<path d="M2 12c2-8 4-8 6-3s4 4 6-5"/>',
   region: '<path d="M3 6c1-3 6-4 9-2s2 7-1 8-9-2-8-6z"/>',
+  sphere: '<circle cx="8" cy="8" r="6"/><ellipse cx="8" cy="8" rx="6" ry="2.2"/>',
   missing: '<path d="M5 5l6 6M11 5l-6 6"/>',
 };
 const EYE = SVG('<path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>');

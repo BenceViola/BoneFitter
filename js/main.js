@@ -14,6 +14,7 @@ import { CurveEngine } from './curve-engine.js';
 import { CurveTool } from './curve-tool.js';
 import { setupInteraction } from './interaction.js';
 import { RegionEngine } from './region-engine.js';
+import { FitEngine } from './fit-engine.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -62,6 +63,7 @@ if (webgl) {
   app.engine = new CurveEngine(model, picker, (id) => view.sources.get(id) || null);
   app.tool = new CurveTool({ model, picker, engine: app.engine, view, ui: app });
   app.regions = new RegionEngine(model, picker, app.engine);
+  app.fits = new FitEngine(model, (id) => view.sources.get(id) || null);
   setupInteraction({ stage: $('stage'), viewer, picker, view, model, engine: app.engine, regions: app.regions, tool: app.tool });
   app.tool.addEventListener('change', renderTool);
   $('curve-btn').addEventListener('click', () => app.tool.setActive(!app.tool.active));
@@ -70,6 +72,7 @@ if (webgl) {
   $('curve-undo').addEventListener('click', () => app.tool.undo());
   $('curve-cancel').addEventListener('click', () => app.tool.cancel());
   $('region-btn').addEventListener('click', makeRegion);
+  $('sphere-btn').addEventListener('click', fitSphere);
 }
 const { tool } = app;
 
@@ -89,6 +92,29 @@ function makeRegion() {
   }
   clearMessage();
   model.select(region.id);
+}
+
+// The Sphere button: fit a sphere to the selected region. With a closed
+// curve selected, its region is used, or made first.
+function fitSphere() {
+  if (tool.draft && tool.state().canClose) tool.close();
+  let region = model.selected;
+  if (region?.kind === 'curve' && app.regions.canBound(region)) {
+    const curve = region;
+    region =
+      app.regions.regionsOf(curve.id).find((r) => r.boundary.length === 1 && !r.flipped) ?? app.regions.create(curve.id);
+  }
+  if (region?.kind !== 'region') {
+    showMessage('note', ['Select a region (or a closed curve) first, then press Sphere. The sphere is fitted to the part of the mesh the region covers.']);
+    return;
+  }
+  if (region.error) {
+    model.select(region.id);
+    showMessage('note', [`“${region.name}” encloses nothing at the moment, so there is nothing to fit. Its Properties say why.`]);
+    return;
+  }
+  clearMessage();
+  model.select(app.fits.create(region.id).id);
 }
 
 // The Curve button, and the strip of the tool's own buttons over the 3D view.

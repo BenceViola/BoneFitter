@@ -6,7 +6,12 @@
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const int = (n) => Number(n).toLocaleString('en-US');
 const num = (n) => Number(n).toFixed(3);
-const KIND = { mesh: 'Mesh', group: 'Landmark file', point: 'Point', curve: 'Curve', region: 'Region' };
+import { capAngle } from './fit.js';
+
+// Below this cap angle (degrees) a fitted sphere's size is poorly fixed.
+const SHALLOW_CAP = 30;
+
+const KIND = { mesh: 'Mesh', group: 'Landmark file', point: 'Point', curve: 'Curve', region: 'Region', sphere: 'Sphere' };
 
 // Why curves give no region, for the person looking at it.
 const REGION_PROBLEMS = {
@@ -93,6 +98,35 @@ export function describe(model, id) {
       copy = [
         'name\tboundary\tside\ttriangles\tarea\tcentroid_x\tcentroid_y\tcentroid_z',
         [node.name, boundary, node.flipped ? 'other' : node.boundary.length > 1 ? 'between' : 'inside', node.faceCount, node.area, ...node.centroid].join('\t'),
+      ].join('\n');
+    }
+  } else if (node.kind === 'sphere') {
+    const region = model.get(node.source);
+    rows.push(['Fitted to', region?.name ?? '?']);
+    rows.push(['Method', 'best fit: smallest squared distances to the surface']);
+    if (node.error) {
+      const problems = {
+        region: `“${region?.name}” encloses nothing at the moment, so there is nothing to fit. See its Properties.`,
+        'no-region': 'Its region is gone.',
+        flat: 'The region is (nearly) flat, so no sphere fits it. A plane would.',
+        few: 'The region has too few triangles to fit a sphere to.',
+      };
+      rows.push(['Problem', problems[node.error] ?? 'No sphere could be fitted.']);
+    } else {
+      ['x', 'y', 'z'].forEach((axis, i) => rows.push([`Centre ${axis}`, num(node.centre[i]), true]));
+      rows.push(['Radius', num(node.radius), true]);
+      rows.push(['Diameter', num(2 * node.radius), true]);
+      rows.push(['RMS deviation', num(node.rms), true]);
+      rows.push(['Largest deviation', num(node.maxDeviation), true]);
+      rows.push(['Coverage', `${(100 * node.coverage).toFixed(1)}% of the sphere (a cap of ${Math.round(capAngle(node.coverage))}°)`]);
+      rows.push(['Triangles', int(node.faceCount), true]);
+      rows.push(['Coordinates', space]);
+      if (capAngle(node.coverage) < SHALLOW_CAP) {
+        rows.push(['Note', 'The region covers only a small part of the sphere, so the radius and centre are less certain than the deviations suggest.']);
+      }
+      copy = [
+        'name\tfitted_to\tcentre_x\tcentre_y\tcentre_z\tradius\trms_deviation\tmax_deviation\tcoverage\ttriangles',
+        [node.name, region?.name ?? '', ...node.centre, node.radius, node.rms, node.maxDeviation, node.coverage, node.faceCount].join('\t'),
       ].join('\n');
     }
   }

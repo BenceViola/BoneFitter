@@ -24,6 +24,8 @@ const POINT_COLORS = { placed: 0x2f63e0, estimated: 0xd98a00 };
 const CURVE_COLOR = 0x0e9fc7;
 const REGION_COLOR = 0x0e9fc7;
 const REGION_OPACITY = 0.4;
+const FIT_COLOR = 0xd97706;
+const FIT_REACH = 10; // px: a click this close to a sphere's centre mark selects it
 const HANDLE_COLOR = 0xffffff;
 const SELECTED = 0xe0337a;
 const MESH_GLOW = 0x16264d; // added to a selected mesh's colour
@@ -54,6 +56,7 @@ export class SceneView {
       viewer.renderer.getSize(this._size);
       for (const obj of this.objects.values()) {
         if (obj.userData.curve) obj.getObjectByName('line').material.resolution.copy(this._size);
+        if (obj.userData.fit) obj.getObjectByName('outline').material.resolution.copy(this._size);
       }
     });
   }
@@ -128,6 +131,23 @@ export class SceneView {
     for (const node of this.model.children(hit.id)) {
       if (node.kind !== 'region' || !this.model.isShown(node.id) || !hasFace(node.faces, face)) continue;
       if (!best || node.faceCount < best.faceCount) best = node;
+    }
+    return best ? best.id : null;
+  }
+
+  // The fitted sphere whose centre mark is under a screen position. The mark
+  // is drawn through the mesh, so nothing hides it.
+  fitAt(clientX, clientY) {
+    const rect = this.viewer.renderer.domElement.getBoundingClientRect();
+    this.root.updateMatrixWorld(true);
+    const v = new THREE.Vector3();
+    let best = null;
+    for (const [id, obj] of this.objects) {
+      if (!obj.userData.fit || !obj.visible || !this.model.isShown(id)) continue;
+      obj.getObjectByName('centre').getWorldPosition(v).project(this.viewer.camera);
+      if (v.z > 1) continue;
+      const d = Math.hypot(rect.left + ((v.x + 1) / 2) * rect.width - clientX, rect.top + ((1 - v.y) / 2) * rect.height - clientY);
+      if (d <= FIT_REACH && (!best || d < best.d)) best = { id, d };
     }
     return best ? best.id : null;
   }
@@ -218,6 +238,7 @@ export class SceneView {
         const node = this.model.get(id);
         if (node?.kind === 'curve') this._drawCurve(node);
         else if (node?.kind === 'region') this._drawRegion(node);
+        else if (node?.kind === 'sphere') this._drawFit(node);
       }
     }
     if (kind === 'select' || kind === 'remove' || kind === 'add') this._showSelection();
@@ -241,6 +262,22 @@ export class SceneView {
       const handles = new THREE.Group();
       handles.name = 'handles';
       obj.add(line, handles);
+    } else if (node.kind === 'sphere') {
+      // An outline of the sphere (circles of latitude and longitude) and a
+      // mark at its centre, both drawn through the mesh: the sphere lies
+      // in or under the bone's surface, where it would otherwise be hidden.
+      obj = new THREE.Group();
+      obj.userData.fit = true;
+      const outline = new LineSegments2(
+        new LineSegmentsGeometry().setPositions(sphereOutline()),
+        new LineMaterial({ color: FIT_COLOR, linewidth: 1.5, worldUnits: false, transparent: true, opacity: 0.75, depthTest: false })
+      );
+      outline.name = 'outline';
+      outline.renderOrder = 4;
+      const centre = new THREE.Mesh(this.pointGeometry, new THREE.MeshBasicMaterial({ color: FIT_COLOR, depthTest: false }));
+      centre.name = 'centre';
+      centre.renderOrder = 5;
+      obj.add(outline, centre);
     } else if (node.kind === 'region') {
       const material = new THREE.MeshBasicMaterial({
         color: REGION_COLOR,
@@ -267,6 +304,26 @@ export class SceneView {
     this.objects.set(node.id, obj);
     if (node.kind === 'curve') this._drawCurve(node);
     if (node.kind === 'region') this._drawRegion(node);
+    if (node.kind === 'sphere') this._drawFit(node);
+  }
+
+  // Bring a fitted sphere's outline and centre mark up to date with its node.
+  _drawFit(node) {
+    const obj = this.objects.get(node.id);
+    if (!obj) return;
+    const ok = !node.error && Array.isArray(node.centre);
+    obj.userData.empty = !ok;
+    obj.visible = node.visible && ok;
+    if (!ok) return;
+    const outline = obj.getObjectByName('outline');
+    outline.position.fromArray(node.centre);
+    outline.scale.setScalar(node.radius);
+    obj.getObjectByName('centre').position.fromArray(node.centre);
+    const on = node.id === this.model.selectedId;
+    outline.material.color.setHex(on ? SELECTED : FIT_COLOR);
+    outline.material.linewidth = on ? 2.5 : 1.5;
+    obj.getObjectByName('centre').material.color.setHex(on ? SELECTED : FIT_COLOR);
+    this._sizeMarkers();
   }
 
   // Bring a region's tint up to date with its node: a copy of its triangles.
@@ -349,6 +406,11 @@ export class SceneView {
     } else if (obj.userData.region) {
       obj.geometry.dispose();
       obj.material.dispose();
+    } else if (obj.userData.fit) {
+      const outline = obj.getObjectByName('outline');
+      outline.geometry.dispose();
+      outline.material.dispose();
+      obj.getObjectByName('centre').material.dispose();
     }
   }
 
@@ -363,6 +425,7 @@ export class SceneView {
     for (const [id, obj] of this.objects) {
       if (obj.userData.marker) obj.scale.setScalar(id === this._selected ? r * 1.5 : r);
       else if (obj.userData.curve) this._sizeHandles(obj.getObjectByName('handles'));
+      else if (obj.userData.fit) obj.getObjectByName('centre').scale.setScalar(id === this._selected ? r * 1.2 : r * 0.8);
     }
   }
 
@@ -380,6 +443,7 @@ export class SceneView {
       if (obj.userData.marker) obj.material.color.setHex(on ? SELECTED : obj.userData.color);
       if (obj.userData.curve) this._drawCurve(this.model.get(id));
       if (obj.userData.region) this._drawRegion(this.model.get(id));
+      if (obj.userData.fit) this._drawFit(this.model.get(id));
       const surface = obj.getObjectByName('surface');
       if (surface) surface.material.emissive.setHex(on ? MESH_GLOW : 0x000000);
     }
@@ -399,4 +463,23 @@ function hasFace(faces, face) {
     else hi = mid - 1;
   }
   return false;
+}
+
+// The outline of a unit sphere at the origin, as line segments (6 numbers
+// each): 8 circles of longitude and 5 of latitude.
+function sphereOutline(segments = 64) {
+  const out = [];
+  const circle = (point) => {
+    for (let k = 0; k < segments; k++) out.push(...point((2 * Math.PI * k) / segments), ...point((2 * Math.PI * (k + 1)) / segments));
+  };
+  for (let m = 0; m < 8; m++) {
+    const phi = (Math.PI * m) / 8;
+    circle((t) => [Math.cos(t) * Math.cos(phi), Math.sin(t), Math.cos(t) * Math.sin(phi)]);
+  }
+  for (const lat of [-60, -30, 0, 30, 60]) {
+    const y = Math.sin((lat * Math.PI) / 180);
+    const r = Math.cos((lat * Math.PI) / 180);
+    circle((t) => [r * Math.cos(t), y, r * Math.sin(t)]);
+  }
+  return new Float32Array(out);
 }
