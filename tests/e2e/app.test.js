@@ -221,6 +221,175 @@ describe('landmark files', () => {
   });
 });
 
+describe('curves', () => {
+  // Points of the example's head that face the camera in the default view.
+  const unit = (v) => v.map((x) => x / Math.hypot(...v));
+  const HOME = unit([0.45, 0.35, 1]);
+  const onHead = (u, v) => {
+    const d = unit([HOME[0] + u, HOME[1] + v, HOME[2]]);
+    return EXAMPLE.head.centre.map((c, i) => c + EXAMPLE.head.radius * d[i]);
+  };
+  const P1 = onHead(-0.4, -0.3);
+  const P2 = onHead(0.4, -0.3);
+  const P3 = onHead(0, 0.45);
+  const clickHead = async (page, p) => clickAt(page, await onScreen(page, p));
+  const curve = (page, id = 'c1') => page.evaluate((i) => window.__bf.model.get(i), id);
+  const pressed = (page) => page.locator('#curve-btn').getAttribute('aria-pressed');
+
+  test('the Curve button switches the tool on and says what to do; Esc switches it off', async () => {
+    const page = await start();
+    assert.equal(await page.locator('#tool-strip').isHidden(), true);
+    await page.locator('#curve-btn').click();
+    assert.equal(await pressed(page), 'true');
+    assert.match(await page.locator('#tool-hint').innerText(), /Click on a mesh to start a curve/);
+    assert.equal(await page.locator('#curve-finish').isDisabled(), true);
+    await page.keyboard.press('Escape');
+    assert.equal(await pressed(page), 'false');
+    assert.equal(await page.locator('#tool-strip').isHidden(), true);
+  });
+
+  test('three clicks and C draw a closed loop, listed under its mesh with its length', async () => {
+    const page = await start();
+    await page.locator('#curve-btn').click();
+    await clickHead(page, P1);
+    assert.match(await page.locator('#tool-hint').innerText(), /Click to add points/);
+    assert.equal((await properties(page)).rows.Shape, 'being drawn');
+    await clickHead(page, P2);
+    await clickHead(page, P3);
+    assert.equal((await properties(page)).rows['Clicked points'], '3');
+    await page.keyboard.press('c');
+
+    assert.deepEqual((await treeRows(page)).map((r) => [r.name, r.kind, r.depth, r.selected]), [
+      ['Example femur', 'mesh', 0, false],
+      ['Curve 1', 'curve', 1, true],
+    ]);
+    const p = await properties(page);
+    assert.equal(p.kind, 'Curve');
+    assert.equal(p.rows.Shape, 'closed loop');
+    assert.equal(p.rows.Coordinates, 'as in example-femur.stl');
+    const c = await curve(page);
+    assert.equal(p.rows.Length, c.length.toFixed(3));
+    // The loop lies on the head: every point of its path is at the head's radius.
+    for (const q of c.line) {
+      const r = Math.hypot(...q.map((v, i) => v - EXAMPLE.head.centre[i]));
+      assert.ok(Math.abs(r - EXAMPLE.head.radius) < 0.05, `on the head: ${r}`);
+    }
+    assert.equal(await pressed(page), 'true', 'the tool stays on for the next curve');
+  });
+
+  test('Enter finishes an open curve, even right after pressing the Curve button', async () => {
+    const page = await start();
+    await page.locator('#curve-btn').click();
+    await clickHead(page, P1);
+    await clickHead(page, P2);
+    await page.keyboard.press('Enter');
+    const c = await curve(page);
+    assert.equal(c.closed, false);
+    assert.equal(c.drawing, false);
+    assert.equal(await pressed(page), 'true', 'Enter did not press the Curve button again');
+    assert.equal((await properties(page)).rows.Shape, 'open curve');
+  });
+
+  test('Backspace takes the last point off; Esc removes the curve being drawn', async () => {
+    const page = await start();
+    await page.locator('#curve-btn').click();
+    await clickHead(page, P1);
+    await clickHead(page, P2);
+    await clickHead(page, P3);
+    await page.keyboard.press('Backspace');
+    assert.equal((await curve(page)).control_points.length, 2);
+    await page.keyboard.press('Escape');
+    assert.deepEqual(await names(page), ['Example femur']);
+    assert.equal(await pressed(page), 'true', 'the first Esc only removes the curve');
+  });
+
+  test('the strip\'s buttons do the same; a click on the first point closes the loop', async () => {
+    const page = await start();
+    await page.locator('#curve-btn').click();
+    await clickHead(page, P1);
+    await clickHead(page, P2);
+    assert.equal(await page.locator('#curve-close').isDisabled(), true);
+    await page.locator('#curve-finish').click();
+    assert.equal((await curve(page, 'c1')).drawing, false);
+
+    await clickHead(page, P3);
+    await clickHead(page, P1);
+    await clickHead(page, P2);
+    await clickHead(page, P3); // its first point again
+    const c2 = await curve(page, 'c2');
+    assert.equal(c2.closed, true);
+    assert.equal(c2.control_points.length, 3);
+    await clickHead(page, P1);
+    await page.locator('#curve-undo').click();
+    assert.equal(await curve(page, 'c3'), null);
+    assert.deepEqual(await names(page), ['Example femur', 'Curve 1', 'Curve 2']);
+  });
+
+  test('with the tool off, clicking a curve selects it and its handles can be dragged', async () => {
+    const page = await start();
+    await page.locator('#curve-btn').click();
+    await clickHead(page, P1);
+    await clickHead(page, P2);
+    await clickHead(page, P3);
+    await page.keyboard.press('c');
+    await page.locator('#curve-btn').click();
+    assert.equal(await pressed(page), 'false');
+
+    // Select the mesh, then the curve by clicking on its line.
+    await clickAt(page, await onScreen(page, EXAMPLE.shaft.point.map((v, i) => v + [0, 50, 7][i])));
+    assert.equal((await properties(page)).kind, 'Mesh');
+    const before = await curve(page);
+    await clickAt(page, await onScreen(page, before.line[Math.floor(before.line.length / 6)]));
+    assert.equal((await properties(page)).name, 'Curve 1');
+
+    // Drag the second clicked point outwards; the camera must not turn.
+    const cam = () => page.evaluate(() => window.__bf.viewer.camera.position.toArray());
+    const camBefore = await cam();
+    const from = await onScreen(page, before.control_points[1].position);
+    const to = await onScreen(page, onHead(0.7, -0.5));
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2, { steps: 3 });
+    await page.mouse.move(to.x, to.y, { steps: 3 });
+    await page.mouse.up();
+    const after = await curve(page);
+    assert.deepEqual(await cam(), camBefore);
+    assert.notDeepEqual(after.control_points[1].position, before.control_points[1].position);
+    assert.deepEqual(after.control_points[0], before.control_points[0], 'the other points stay');
+    assert.ok(after.length > before.length, 'a wider loop is longer');
+    assert.equal((await properties(page)).rows.Length, after.length.toFixed(3), 'Properties follow the drag');
+  });
+
+  test('Copy numbers gives the curve\'s length and centroid; Remove takes it out', async () => {
+    const page = await start();
+    await page.locator('#curve-btn').click();
+    await clickHead(page, P1);
+    await clickHead(page, P2);
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Escape');
+    const c = await curve(page);
+    await page.locator('#prop-copy').click();
+    await page.waitForFunction(() => document.getElementById('prop-copy').textContent !== 'Copy numbers');
+    assert.deepEqual((await page.evaluate(() => window.__bf.lastCopied)).split('\n'), [
+      'name\tshape\tclicked_points\tlength\tcentroid_x\tcentroid_y\tcentroid_z',
+      ['Curve 1', 'open', 2, c.length, ...c.centroid].join('\t'),
+    ]);
+    await page.locator('#prop-remove').click();
+    assert.deepEqual(await names(page), ['Example femur']);
+  });
+
+  test('opening a mesh while a curve is being drawn on the example drops the curve with it', async () => {
+    const page = await start();
+    await page.locator('#curve-btn').click();
+    await clickHead(page, P1);
+    await openFiles(page, [files.ballA]);
+    assert.deepEqual(await names(page), ['BALL_A.stl']);
+    assert.match(await page.locator('#tool-hint').innerText(), /Click on a mesh to start a curve/);
+    await clickAt(page, await onScreen(page, [0, 0, 20]));
+    assert.equal((await curve(page, 'c2')).parent, 'm2');
+  });
+});
+
 describe('view', () => {
   test('the axis buttons and F turn and refit the camera', async () => {
     const page = await start();

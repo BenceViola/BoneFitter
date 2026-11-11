@@ -199,6 +199,9 @@
   .btn.primary { background: var(--accent); border-color: var(--accent); color: var(--accent-fg); }
   .btn.primary:hover { filter: brightness(1.08); }
   .btn.small { min-height: 28px; padding: 0 10px; font-size: 12.5px; }
+  .btn.tool { gap: 6px; }
+  .btn.tool[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .btn:disabled { color: var(--muted); border-color: var(--line); cursor: default; opacity: 0.6; }
   .btn:focus-visible, input:focus-visible, .tree-row button:focus-visible, .viewbar button:focus-visible {
     outline: 2px solid var(--accent);
     outline-offset: 1px;
@@ -230,7 +233,7 @@
   .message .btn { align-self: flex-start; background: transparent; border-color: currentColor; color: inherit; }
 
   /* ---- Right: toolbar and 3D view ---- */
-  .work { display: grid; grid-template-rows: auto minmax(0, 1fr); min-width: 0; min-height: 0; }
+  .work { display: flex; flex-direction: column; min-width: 0; min-height: 0; }
   .toolbar {
     display: flex;
     flex-wrap: wrap;
@@ -259,6 +262,7 @@
 
   .stage {
     position: relative;
+    flex: 1 1 0;
     min-width: 0;
     min-height: 0;
     background: var(--viewport);
@@ -277,6 +281,21 @@
     color: var(--muted);
     pointer-events: none;
   }
+  .stage.is-drawing canvas { cursor: crosshair; }
+  /* The buttons of the tool in use, in a row of their own under the toolbar,
+     so they never cover the mesh. */
+  .tool-strip {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 6px 12px;
+    padding: 6px calc(12px + env(safe-area-inset-right, 0px)) 6px 12px;
+    border-bottom: 1px solid var(--line);
+    background: var(--accent-soft);
+    font-size: 13px;
+  }
+  .tool-strip #tool-hint { flex: 1 1 260px; }
+  .tool-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
   .space-note {
     position: absolute;
     left: 12px;
@@ -352,7 +371,7 @@
 <div class="app">
   <aside class="panel">
     <header class="brand">
-      <h1>BoneFitter <span class="ver">v0.1</span></h1>
+      <h1>BoneFitter <span class="ver">v0.2</span></h1>
     </header>
 
     <div id="message" class="message" role="alert" hidden></div>
@@ -372,6 +391,9 @@
     <div class="toolbar" role="toolbar" aria-label="Tools">
       <input type="file" id="file-input" class="file-input" accept=".stl,.ply,.json" multiple>
       <label for="file-input" class="btn primary" title="Open meshes (STL, PLY) and landmark files (.lmk.json)">Open…</label>
+      <button type="button" class="btn tool" id="curve-btn" aria-pressed="false" title="Draw a curve on a mesh by clicking points on it">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12c2-8 4-8 6-3s4 4 6-5"/></svg>Curve
+      </button>
       <span class="spacer"></span>
       <div class="viewbar" role="group" aria-label="View along the axes">
         <button type="button" data-view="+x" title="View from +X">+X</button>
@@ -383,6 +405,16 @@
         <span class="sep" aria-hidden="true"></span>
         <button type="button" class="fit" id="fit-btn" title="Fit everything in the view (F)">Fit</button>
       </div>
+    </div>
+
+    <div class="tool-strip" id="tool-strip" role="group" aria-label="Curve tool" hidden>
+      <span id="tool-hint" aria-live="polite"></span>
+      <span class="tool-buttons">
+        <button type="button" class="btn small" id="curve-finish" title="Finish the curve as it is (Enter)">Finish</button>
+        <button type="button" class="btn small" id="curve-close" title="Join the last point to the first (C)">Close loop</button>
+        <button type="button" class="btn small" id="curve-undo" title="Take the last point off again (Backspace)">Undo point</button>
+        <button type="button" class="btn small" id="curve-cancel" title="Remove the curve being drawn (Esc)">Cancel</button>
+      </span>
     </div>
 
     <main class="stage" id="stage" aria-label="3D view">

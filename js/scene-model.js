@@ -9,6 +9,12 @@
 //   kind 'group'   a folder under a mesh, e.g. the landmarks of one file.
 //   kind 'point'   a point. Fields: position [x, y, z] or null, status,
 //                  template_id.
+//   kind 'curve'   a curve drawn on a mesh. What was clicked: control_points
+//                  [{ position, anchor }], closed, path ('geodesic' or
+//                  'euclidean'), as in a landmark file's curve. What was
+//                  computed from that (curve-engine.js): line (the path
+//                  across the surface), length, centroid, used, warning.
+//                  `drawing` is true while it is being drawn.
 //
 // `parent` is the id of the node this one is attached to, or null for the
 // top level. Something attached to a mesh is given in that mesh's own file
@@ -19,7 +25,8 @@
 // template, when the app gets one, will say which objects to create, and
 // this is the link from an object back to the template step it fulfils.
 
-const PREFIX = { mesh: 'm', group: 'g', point: 'p' };
+const PREFIX = { mesh: 'm', group: 'g', point: 'p', curve: 'c' };
+const LABEL = { mesh: 'Mesh', group: 'Group', point: 'Point', curve: 'Curve' };
 
 export class SceneModel extends EventTarget {
   constructor() {
@@ -71,7 +78,9 @@ export class SceneModel extends EventTarget {
     if (parent !== null && !this.nodes.has(parent)) throw new Error(`No object ${parent} to attach to`);
     if (kind === 'mesh' && parent !== null) throw new Error('A mesh cannot be attached to another object');
     const n = (this._counter[kind] = (this._counter[kind] || 0) + 1);
-    const node = { name: '', visible: true, template_id: null, ...fields, id: `${PREFIX[kind]}${n}`, kind, parent };
+    // Without a name of its own, an object is called after its kind: "Curve 2".
+    const node = { visible: true, template_id: null, ...fields, id: `${PREFIX[kind]}${n}`, kind, parent };
+    if (!node.name) node.name = `${LABEL[kind]} ${n}`;
     this.nodes.set(node.id, node);
     this._changed('add', [node.id]);
     return node;
@@ -107,6 +116,15 @@ export class SceneModel extends EventTarget {
     if (!node || !clean || clean === node.name) return;
     node.name = clean;
     this._changed('rename', [id]);
+  }
+
+  // Change fields of a node (what it is attached to and its kind stay).
+  update(id, fields) {
+    const node = this.get(id);
+    if (!node) return;
+    const { id: _id, kind: _kind, parent: _parent, ...rest } = fields;
+    Object.assign(node, rest);
+    this._changed('update', [id]);
   }
 
   setVisible(id, visible) {

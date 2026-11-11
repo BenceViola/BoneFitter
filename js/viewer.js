@@ -106,6 +106,11 @@ export class Viewer {
     return { x: rect.left + ((v.x + 1) / 2) * rect.width, y: rect.top + ((1 - v.y) / 2) * rect.height };
   }
 
+  // Take up the size of the container now (it is also followed automatically).
+  resize() {
+    this._resize();
+  }
+
   _frame(dir, up) {
     if (!this.box) return;
     const sphere = this.box.getBoundingSphere(new THREE.Sphere());

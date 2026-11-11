@@ -86,6 +86,26 @@ describe('the object tree', () => {
     assert.equal(model.add('mesh', { name: 'Tibia' }).id, 'm3');
   });
 
+  test('an object without a name is called after its kind and number', () => {
+    const { model, femur } = sample();
+    assert.equal(model.add('curve', { parent: femur.id }).name, 'Curve 1');
+    assert.equal(model.add('curve', { parent: femur.id, name: 'Rim' }).name, 'Rim');
+    assert.equal(model.add('curve', { parent: femur.id }).name, 'Curve 3');
+  });
+
+  test('update changes fields and announces it, but never what a node is or hangs under', () => {
+    const { model, femur, pelvis } = sample();
+    const c = model.add('curve', { parent: femur.id, closed: false });
+    const seen = events(model);
+    model.update(c.id, { closed: true, length: 12.5, id: 'x', kind: 'mesh', parent: pelvis.id });
+    assert.equal(c.closed, true);
+    assert.equal(c.length, 12.5);
+    assert.deepEqual([c.id, c.kind, c.parent], ['c1', 'curve', femur.id]);
+    assert.deepEqual(seen.map((e) => [e.kind, e.ids]), [['update', ['c1']]]);
+    model.update('gone', { closed: true });
+    assert.equal(seen.length, 1);
+  });
+
   test('rename trims, and ignores an empty or unchanged name', () => {
     const { model, femur } = sample();
     const seen = events(model);

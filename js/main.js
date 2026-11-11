@@ -1,5 +1,5 @@
 // Wires the page together: the 3D view, picking, the object tree and its
-// two panels (Objects, Properties), the toolbar, and opening files.
+// two panels (Objects, Properties), the toolbar and its tools, and opening files.
 
 import { Viewer } from './viewer.js';
 import { Picker } from './picking.js';
@@ -10,10 +10,11 @@ import { setupProperties } from './properties-panel.js';
 import { openFiles, meshFields } from './opening.js';
 import { loadMeshBuffer } from './mesh-loader.js';
 import { makeExampleStl, EXAMPLE } from './sample.js';
+import { CurveEngine } from './curve-engine.js';
+import { CurveTool } from './curve-tool.js';
+import { setupInteraction } from './interaction.js';
 
 const $ = (id) => document.getElementById(id);
-const CLICK_SLOP = 5; // px: a press that moves further is a rotation, not a click
-const CLICK_TIME = 600; // ms
 
 const model = new SceneModel();
 const app = { model, setBusy, nextFrame, showMessage };
@@ -54,26 +55,35 @@ function renderStage() {
     : '';
 }
 
-// ---- Selecting in the 3D view ---------------------------------------------
+// ---- Curves, and the mouse in the 3D view -------------------------------------
 
 if (webgl) {
-  const canvas = viewer.renderer.domElement;
-  let press = null;
-  canvas.addEventListener('pointerdown', (e) => {
-    press = e.isPrimary && (e.pointerType !== 'mouse' || e.button === 0)
-      ? { id: e.pointerId, x: e.clientX, y: e.clientY, time: performance.now() }
-      : null;
-  });
-  window.addEventListener('pointerup', (e) => {
-    if (!press || e.pointerId !== press.id) return;
-    const p = press;
-    press = null;
-    if (Math.hypot(e.clientX - p.x, e.clientY - p.y) > CLICK_SLOP) return;
-    if (performance.now() - p.time > CLICK_TIME) return;
-    // A point marker wins over the surface it sits on; empty space selects nothing.
-    model.select(view.pointAt(e.clientX, e.clientY) ?? picker.pickAt(e.clientX, e.clientY)?.id ?? null);
-  });
-  window.addEventListener('pointercancel', () => (press = null));
+  app.engine = new CurveEngine(model, picker, (id) => view.sources.get(id) || null);
+  app.tool = new CurveTool({ model, picker, engine: app.engine, view, ui: app });
+  setupInteraction({ stage: $('stage'), viewer, picker, view, model, engine: app.engine, tool: app.tool });
+  app.tool.addEventListener('change', renderTool);
+  $('curve-btn').addEventListener('click', () => app.tool.setActive(!app.tool.active));
+  $('curve-finish').addEventListener('click', () => app.tool.finish());
+  $('curve-close').addEventListener('click', () => app.tool.close());
+  $('curve-undo').addEventListener('click', () => app.tool.undo());
+  $('curve-cancel').addEventListener('click', () => app.tool.cancel());
+}
+const { tool } = app;
+
+// The Curve button, and the strip of the tool's own buttons over the 3D view.
+function renderTool() {
+  const t = tool.state();
+  $('curve-btn').setAttribute('aria-pressed', String(t.active));
+  $('stage').classList.toggle('is-drawing', t.active);
+  if ($('tool-strip').hidden === t.active) {
+    $('tool-strip').hidden = !t.active;
+    viewer.resize(); // the strip takes its row from the 3D view
+  }
+  $('tool-hint').textContent = t.hint;
+  $('curve-finish').disabled = !t.canFinish;
+  $('curve-close').disabled = !t.canClose;
+  $('curve-undo').disabled = t.points === 0;
+  $('curve-cancel').disabled = t.points === 0;
 }
 
 // ---- Toolbar, keyboard -----------------------------------------------------
@@ -88,7 +98,22 @@ window.addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, textarea, select')) return;
   if (e.key === 'f' || e.key === 'F') viewer?.fit();
   else if (e.key === 'h' || e.key === 'H') viewer?.viewFrom('home');
+  else if (tool?.active && curveKey(e)) e.preventDefault();
 });
+
+// Keys of the Curve tool. Returns true when the key was one of them.
+function curveKey(e) {
+  if (e.target.closest?.('button') && e.key === 'Enter') return false; // Enter on a button presses that button
+  if (e.key === 'Enter') tool.finish();
+  else if (e.key === 'c' || e.key === 'C') tool.close();
+  else if (e.key === 'Backspace') tool.undo();
+  else if (e.key === 'Escape') {
+    // First the curve being drawn, then the tool itself.
+    if (tool.draft) tool.cancel();
+    else tool.setActive(false);
+  } else return false;
+  return true;
+}
 
 // ---- Opening files ---------------------------------------------------------
 

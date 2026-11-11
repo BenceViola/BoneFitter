@@ -2,18 +2,19 @@
 
 A lightweight tool for fitting geometric primitives (lines, planes, spheres, cylinders) to surface meshes of bones, in the browser, to measure structures such as epiphyses and joint surfaces. It is the sister app of [Landmarker3D](https://github.com/BenceViola/Landmarker3D) and shares its foundations.
 
-**Open the app: https://benceviola.github.io/BoneFitter/** (once GitHub Pages is switched on for this repository)
+**Open the app: https://benceviola.github.io/BoneFitter/**
 
 Nothing to install. Meshes are read on your own computer and never uploaded.
 
-## Where it stands (v0.1)
+## Where it stands (v0.2)
 
-This first version is the foundation: the page layout and the parts brought over from Landmarker3D. Fitting, constructing, measuring and saving come next.
+The foundation, plus curves drawn on a mesh. Regions enclosed by curves, fitting, constructing, measuring and saving come next.
 
 - Opens binary and ASCII **STL** and **PLY** triangle meshes, several at once, each shown where its file puts it.
 - **Objects** (left): every mesh, with what is attached to it nested underneath. Click a name to select it, the eye to hide or show it.
 - **Properties** (left, below): the facts and numbers of the selected object, with a button to copy them for a spreadsheet.
 - **Toolbar and 3D view** (right): open files, look along an axis, fit everything in view. Click a mesh or a point in the view to select it.
+- **Curves**: with the Curve tool, click points on a mesh and the app joins them by the shortest path across the surface. A curve can be left open or closed into a loop. It is listed under its mesh, with its length and centroid in Properties, and its clicked points can be dragged afterwards.
 - Opens **landmark files** (`.lmk.json`) from Landmarker3D: the landmarks appear as points attached to the mesh they were placed on, matched by the mesh's SHA-256.
 - Starts with an **example**: a toy femur built from exact shapes, so fits can be checked against known answers.
 
@@ -23,9 +24,20 @@ Coordinates are always in each mesh file's own coordinate system: the app never 
 
 | | |
 |---|---|
-| click | select the mesh or point under the cursor |
+| click | select the mesh, point or curve under the cursor |
+| drag a white diamond | move a clicked point of the selected curve |
 | drag / right-drag / scroll | rotate / pan / zoom |
 | F, H | fit the view, default view |
+
+With the **Curve** tool on:
+
+| | |
+|---|---|
+| click on a mesh | start a curve, or add a point to it |
+| Enter, or click the last point again | finish the curve as it is |
+| C, or click the first point again | close the curve into a loop (three points or more) |
+| Backspace | take the last point off |
+| Esc | remove the curve being drawn; again to leave the tool |
 
 You can also drop meshes and landmark files anywhere on the page.
 

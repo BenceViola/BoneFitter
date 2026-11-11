@@ -6,7 +6,7 @@
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const int = (n) => Number(n).toLocaleString('en-US');
 const num = (n) => Number(n).toFixed(3);
-const KIND = { mesh: 'Mesh', group: 'Landmark file', point: 'Point' };
+const KIND = { mesh: 'Mesh', group: 'Landmark file', point: 'Point', curve: 'Curve' };
 
 /**
  * What the panel shows for a node: { title, kind, rows: [[label, value,
@@ -51,6 +51,22 @@ export function describe(model, id) {
       rows.push(['Position', 'none (missing)']);
     }
     if (node.note) rows.push(['Note', node.note]);
+  } else if (node.kind === 'curve') {
+    rows.push(['Shape', node.drawing ? 'being drawn' : node.closed ? 'closed loop' : 'open curve']);
+    rows.push(['Clicked points', String(node.control_points?.length ?? 0), true]);
+    rows.push(['Path', node.used === 'euclidean' ? 'straight between the points' : 'shortest across the surface']);
+    rows.push(['Length', num(node.length ?? 0), true]);
+    if (node.centroid) {
+      ['x', 'y', 'z'].forEach((axis, i) => rows.push([`Centroid ${axis}`, num(node.centroid[i]), true]));
+      rows.push(['Coordinates', space]);
+      copy = [
+        'name\tshape\tclicked_points\tlength\tcentroid_x\tcentroid_y\tcentroid_z',
+        [node.name, node.closed ? 'closed' : 'open', node.control_points.length, node.length, ...node.centroid].join('\t'),
+      ].join('\n');
+    }
+    if (node.warning === 'apart') {
+      rows.push(['Note', 'Some of its points are on separate pieces of the mesh. The curve is straight between those.']);
+    }
   }
   return { title: node.name, kind: KIND[node.kind], rows, copy };
 }

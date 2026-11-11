@@ -7,6 +7,7 @@ const ICONS = {
   mesh: '<path d="M8 1.5 14 5v6l-6 3.5L2 11V5z M2 5l6 3.5L14 5 M8 8.5v6"/>',
   group: '<path d="M1.5 4.5h4l1.5 1.5h7.5v7h-13z"/>',
   point: '<circle cx="8" cy="8" r="3" fill="currentColor" stroke="none"/>',
+  curve: '<path d="M2 12c2-8 4-8 6-3s4 4 6-5"/>',
   missing: '<path d="M5 5l6 6M11 5l-6 6"/>',
 };
 const EYE = SVG('<path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/>');
@@ -70,6 +71,8 @@ export function setupTree(el, model) {
 
   model.addEventListener('change', (e) => {
     const { kind, ids } = e.detail;
+    // A curve being drawn or dragged changes many times a second; the list shows none of that.
+    if (kind === 'update') return;
     // A landmark file can hold many points: its folder starts folded away.
     if (kind === 'add') {
       for (const id of ids) if (model.get(id)?.kind === 'group') folded.add(id);
