@@ -37,7 +37,8 @@ export const EXAMPLE = {
     centre: at(neckDir[0] * NECK_LENGTH, SHAFT_LENGTH + neckDir[1] * NECK_LENGTH, 0),
     radius: 12,
   },
-  trochanter: { centre: at(0, SHAFT_LENGTH, 0), radius: 7 },
+  // A little wider than the shaft, so the two surfaces cross cleanly instead of lying on each other.
+  trochanter: { centre: at(0, SHAFT_LENGTH, 0), radius: 7.5 },
   condyles: [
     { centre: at(10, 0, 0), radius: 11 },
     { centre: at(-10, 0, 0), radius: 11 },
@@ -46,7 +47,8 @@ export const EXAMPLE = {
 
 // A capped rod from `point` along `direction` (three.js cylinders run along Y).
 function rod({ point, direction, radius, length }) {
-  const g = new THREE.CylinderGeometry(radius, radius, length, 48, 8).toNonIndexed();
+  // Triangles under one unit across, like a scan's, so curves and regions have something fine to follow.
+  const g = new THREE.CylinderGeometry(radius, radius, length, 64, Math.round(length)).toNonIndexed();
   const dir = new THREE.Vector3(...direction);
   g.applyQuaternion(new THREE.Quaternion().setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir));
   const mid = new THREE.Vector3(...point).addScaledVector(dir, length / 2);
@@ -55,7 +57,7 @@ function rod({ point, direction, radius, length }) {
 }
 
 function ball({ centre, radius }) {
-  const g = new THREE.SphereGeometry(radius, 48, 32).toNonIndexed();
+  const g = new THREE.SphereGeometry(radius, 96, 64).toNonIndexed();
   g.translate(...centre);
   return g;
 }

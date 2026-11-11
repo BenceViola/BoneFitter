@@ -390,6 +390,189 @@ describe('curves', () => {
   });
 });
 
+describe('regions', () => {
+  // Loops on the example's head round the point that faces the camera in the
+  // default view: n points on the circle `angle` degrees away from it.
+  const unit = (v) => v.map((x) => x / Math.hypot(...v));
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const HOME = unit([0.45, 0.35, 1]);
+  const E1 = unit(cross(HOME, [0, 1, 0]));
+  const E2 = cross(HOME, E1);
+  const R = EXAMPLE.head.radius;
+  const loop = (angle, n = 8) =>
+    Array.from({ length: n }, (_, k) => {
+      const a = (angle * Math.PI) / 180;
+      const t = (2 * Math.PI * k) / n;
+      return EXAMPLE.head.centre.map((c, i) => c + R * (Math.cos(a) * HOME[i] + Math.sin(a) * (Math.cos(t) * E1[i] + Math.sin(t) * E2[i])));
+    });
+  const cap = (angle) => 2 * Math.PI * R * R * (1 - Math.cos((angle * Math.PI) / 180));
+  const node = (page, id) =>
+    page.evaluate((i) => {
+      const { faces, line, ...rest } = window.__bf.model.get(i) ?? {};
+      return rest.id ? rest : null;
+    }, id);
+  const drawn = (page, id) => page.evaluate((i) => {
+    const o = window.__bf.view.objectOf(i);
+    return o ? { visible: o.visible, triangles: o.geometry.attributes.position.count / 3 } : null;
+  }, id);
+
+  // Draw a closed loop with the Curve tool and leave the tool.
+  async function drawLoop(page, points) {
+    if ((await page.locator('#curve-btn').getAttribute('aria-pressed')) !== 'true') await page.locator('#curve-btn').click();
+    for (const p of points) await clickAt(page, await onScreen(page, p));
+    await page.keyboard.press('c');
+    await page.locator('#curve-btn').click();
+  }
+
+  test('Region makes a region from the selected closed curve: listed, tinted, with area and centroid', async () => {
+    const page = await start();
+    await drawLoop(page, loop(30));
+    await page.locator('#region-btn').click();
+
+    assert.deepEqual((await treeRows(page)).map((r) => [r.name, r.kind, r.depth, r.selected]), [
+      ['Example femur', 'mesh', 0, false],
+      ['Curve 1', 'curve', 1, false],
+      ['Region 1', 'region', 1, true],
+    ]);
+    const p = await properties(page);
+    assert.equal(p.kind, 'Region');
+    assert.equal(p.rows.Boundary, 'Curve 1');
+    assert.equal(p.rows.Side, 'inside the curve');
+    assert.equal(p.rows.Coordinates, 'as in example-femur.stl');
+    const r = await node(page, 'r1');
+    assert.equal(r.error, null);
+    assert.equal(p.rows.Triangles, r.faceCount.toLocaleString('en-US'));
+    assert.equal(p.rows.Area, r.area.toFixed(3));
+    // Eight points on the circle: a little less than the whole cap.
+    assert.ok(r.area > 0.8 * cap(30) && r.area < cap(30), `${r.area} against a cap of ${cap(30)}`);
+    // Its centroid is under the middle of the loop.
+    const dir = unit(r.centroid.map((v, i) => v - EXAMPLE.head.centre[i]));
+    assert.ok(dir[0] * HOME[0] + dir[1] * HOME[1] + dir[2] * HOME[2] > 0.995);
+    assert.deepEqual(await drawn(page, 'r1'), { visible: true, triangles: r.faceCount });
+    assert.equal(await page.locator('#message').isHidden(), true);
+  });
+
+  test('with a loop still being drawn, Region closes it first', async () => {
+    const page = await start();
+    await page.locator('#curve-btn').click();
+    for (const p of loop(30, 5)) await clickAt(page, await onScreen(page, p));
+    await page.locator('#region-btn').click();
+    assert.equal((await node(page, 'c1')).closed, true);
+    assert.equal((await properties(page)).name, 'Region 1');
+    assert.equal((await node(page, 'r1')).error, null);
+  });
+
+  test('Region says what to select when there is no closed curve', async () => {
+    const page = await start();
+    await page.locator('#region-btn').click();
+    assert.match(await messageText(page), /Select a closed curve first/);
+    await page.locator('#curve-btn').click();
+    for (const p of loop(30, 2)) await clickAt(page, await onScreen(page, p));
+    await page.keyboard.press('Enter');
+    await page.locator('#region-btn').click();
+    assert.match(await messageText(page), /“Curve 1” is not a closed loop/);
+    assert.deepEqual(await names(page), ['Example femur', 'Curve 1']);
+  });
+
+  test('Use the other side takes the rest of the surface instead', async () => {
+    const page = await start();
+    await drawLoop(page, loop(30));
+    await page.locator('#region-btn').click();
+    const inside = (await node(page, 'r1')).area;
+    await page.locator('#prop-flip').click();
+    const r = await node(page, 'r1');
+    assert.equal((await properties(page)).rows.Side, 'the other side');
+    const sphere = 4 * Math.PI * R * R;
+    assert.ok(Math.abs(inside + r.area - sphere) < 0.02 * sphere, 'the two sides make up the whole head');
+    assert.equal((await drawn(page, 'r1')).triangles, r.faceCount);
+  });
+
+  test('dragging a point of the curve reshapes its region', async () => {
+    const page = await start();
+    await drawLoop(page, loop(25));
+    await page.locator('#region-btn').click();
+    const before = (await node(page, 'r1')).area;
+    await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
+    const from = await onScreen(page, loop(25)[2]);
+    const to = await onScreen(page, loop(50)[2]);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move((from.x + to.x) / 2, (from.y + to.y) / 2, { steps: 3 });
+    await page.mouse.move(to.x, to.y, { steps: 3 });
+    await page.mouse.up();
+    const after = await node(page, 'r1');
+    assert.ok(after.area > before * 1.1, `${after.area} after, ${before} before`);
+    assert.equal((await drawn(page, 'r1')).triangles, after.faceCount, 'the tint follows');
+  });
+
+  test('a click inside a region selects it; outside it, the mesh; removing the curve removes the region', async () => {
+    const page = await start();
+    await drawLoop(page, loop(30));
+    await page.locator('#region-btn').click();
+    await clickAt(page, await onScreen(page, loop(60)[1]));
+    assert.equal((await properties(page)).kind, 'Mesh');
+    await clickAt(page, await onScreen(page, loop(0)[0]));
+    assert.equal((await properties(page)).name, 'Region 1');
+
+    await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
+    await page.locator('#prop-remove').click();
+    assert.deepEqual(await names(page), ['Example femur']);
+    assert.equal(await drawn(page, 'r1'), null);
+  });
+
+  test('a second loop inside the first can be added as a boundary, leaving a hole', async () => {
+    const page = await start();
+    await page.locator('#curve-btn').click();
+    for (const p of loop(40)) await clickAt(page, await onScreen(page, p));
+    await page.keyboard.press('c');
+    for (const p of loop(15, 6)) await clickAt(page, await onScreen(page, p));
+    await page.keyboard.press('c');
+    await page.locator('#curve-btn').click();
+
+    await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
+    await page.locator('#region-btn').click();
+    const whole = (await node(page, 'r1')).area;
+    await page.locator('#prop-add-boundary').selectOption({ label: 'Curve 2' });
+    const p = await properties(page);
+    assert.equal(p.rows.Boundary, 'Curve 1, Curve 2');
+    assert.equal(p.rows.Side, 'between its curves');
+    const ring = (await node(page, 'r1')).area;
+    assert.ok(ring < whole - 0.7 * cap(15) && ring > whole - 1.1 * cap(15), `${ring} of ${whole}`);
+    assert.equal(await page.locator('#prop-add-boundary').count(), 0, 'no closed curve is left to add');
+    // The hole is not part of the region any more.
+    await clickAt(page, await onScreen(page, loop(0)[0]));
+    assert.equal((await properties(page)).kind, 'Mesh');
+  });
+
+  test('a loop that crosses itself gives no region, and says why', async () => {
+    const page = await start();
+    const [a, b, c, d] = loop(30, 4);
+    await drawLoop(page, [a, c, b, d]);
+    await page.locator('#region-btn').click();
+    assert.equal((await node(page, 'r1')).error, 'crossing');
+    assert.match(await page.locator('#properties .problem').innerText(), /crosses itself/);
+    assert.equal((await treeRows(page)).find((r) => r.name === 'Region 1').count, '!');
+    assert.equal((await drawn(page, 'r1')).visible, false);
+
+    // Putting the curve right brings the region back and clears the mark.
+    await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
+    const from = await onScreen(page, c);
+    const to = await onScreen(page, loop(30, 8)[1]);
+    const from2 = await onScreen(page, b);
+    await page.mouse.move(from.x, from.y);
+    await page.mouse.down();
+    await page.mouse.move(to.x, to.y, { steps: 4 });
+    await page.mouse.up();
+    const to2 = await onScreen(page, loop(30, 8)[5]);
+    await page.mouse.move(from2.x, from2.y);
+    await page.mouse.down();
+    await page.mouse.move(to2.x, to2.y, { steps: 4 });
+    await page.mouse.up();
+    assert.equal((await node(page, 'r1')).error, null);
+    assert.equal((await treeRows(page)).find((r) => r.name === 'Region 1').count, null);
+  });
+});
+
 describe('view', () => {
   test('the axis buttons and F turn and refit the camera', async () => {
     const page = await start();

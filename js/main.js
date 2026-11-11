@@ -13,6 +13,7 @@ import { makeExampleStl, EXAMPLE } from './sample.js';
 import { CurveEngine } from './curve-engine.js';
 import { CurveTool } from './curve-tool.js';
 import { setupInteraction } from './interaction.js';
+import { RegionEngine } from './region-engine.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -44,7 +45,7 @@ new MutationObserver(applyTheme).observe(document.documentElement, { attributes:
 // ---- Panels --------------------------------------------------------------
 
 app.tree = setupTree($('tree'), model);
-app.properties = setupProperties($('properties'), { model, copyText });
+app.properties = setupProperties($('properties'), { model, copyText, app });
 model.addEventListener('change', renderStage);
 
 function renderStage() {
@@ -60,15 +61,35 @@ function renderStage() {
 if (webgl) {
   app.engine = new CurveEngine(model, picker, (id) => view.sources.get(id) || null);
   app.tool = new CurveTool({ model, picker, engine: app.engine, view, ui: app });
-  setupInteraction({ stage: $('stage'), viewer, picker, view, model, engine: app.engine, tool: app.tool });
+  app.regions = new RegionEngine(model, picker, app.engine);
+  setupInteraction({ stage: $('stage'), viewer, picker, view, model, engine: app.engine, regions: app.regions, tool: app.tool });
   app.tool.addEventListener('change', renderTool);
   $('curve-btn').addEventListener('click', () => app.tool.setActive(!app.tool.active));
   $('curve-finish').addEventListener('click', () => app.tool.finish());
   $('curve-close').addEventListener('click', () => app.tool.close());
   $('curve-undo').addEventListener('click', () => app.tool.undo());
   $('curve-cancel').addEventListener('click', () => app.tool.cancel());
+  $('region-btn').addEventListener('click', makeRegion);
 }
 const { tool } = app;
+
+// The Region button: a region from the selected closed curve. A loop that is
+// still being drawn is closed first.
+function makeRegion() {
+  if (tool.draft && tool.state().canClose) tool.close();
+  const curve = model.selected;
+  if (curve?.kind !== 'curve') {
+    showMessage('note', ['Select a closed curve first, then press Region. The region is the part of the mesh that the curve encloses.']);
+    return;
+  }
+  const region = app.regions.create(curve.id);
+  if (!region) {
+    showMessage('note', [`“${curve.name}” is not a closed loop. A region needs a curve that comes back to its first point: draw one and close it with C.`]);
+    return;
+  }
+  clearMessage();
+  model.select(region.id);
+}
 
 // The Curve button, and the strip of the tool's own buttons over the 3D view.
 function renderTool() {

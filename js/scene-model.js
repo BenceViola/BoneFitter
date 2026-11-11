@@ -15,6 +15,11 @@
 //                  computed from that (curve-engine.js): line (the path
 //                  across the surface), length, centroid, used, warning.
 //                  `drawing` is true while it is being drawn.
+//   kind 'region'  the triangles of a mesh that closed curves enclose.
+//                  What it was made from: boundary (curve ids), flipped
+//                  (the other side). What was computed from that
+//                  (region-engine.js): faces (the file's face numbers),
+//                  faceCount, area, centroid, error.
 //
 // `parent` is the id of the node this one is attached to, or null for the
 // top level. Something attached to a mesh is given in that mesh's own file
@@ -25,8 +30,8 @@
 // template, when the app gets one, will say which objects to create, and
 // this is the link from an object back to the template step it fulfils.
 
-const PREFIX = { mesh: 'm', group: 'g', point: 'p', curve: 'c' };
-const LABEL = { mesh: 'Mesh', group: 'Group', point: 'Point', curve: 'Curve' };
+const PREFIX = { mesh: 'm', group: 'g', point: 'p', curve: 'c', region: 'r' };
+const LABEL = { mesh: 'Mesh', group: 'Group', point: 'Point', curve: 'Curve', region: 'Region' };
 
 export class SceneModel extends EventTarget {
   constructor() {

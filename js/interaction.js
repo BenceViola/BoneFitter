@@ -1,7 +1,7 @@
 // Mouse and touch in the 3D view.
 //
 //   click                  select what is under the cursor: a point, a curve,
-//                          a mesh, or nothing. With the Curve tool on, the
+//                          a region, a mesh, or nothing. With the Curve tool on, the
 //                          click goes to the tool instead (curve-tool.js).
 //   drag a curve's handle  move that clicked point over its mesh; the curve
 //                          is recomputed as it moves
@@ -13,7 +13,7 @@ const CLICK_SLOP = 5; // px
 const CLICK_TIME = 600; // ms
 const DRAG_START = 3; // px before a press on a handle becomes a drag
 
-export function setupInteraction({ stage, viewer, picker, view, model, engine, tool }) {
+export function setupInteraction({ stage, viewer, picker, view, model, engine, regions, tool }) {
   const canvas = viewer.renderer.domElement;
   let press = null;
   let frame = 0;
@@ -54,7 +54,10 @@ export function setupInteraction({ stage, viewer, picker, view, model, engine, t
 
   window.addEventListener('pointermove', (e) => {
     if (!press?.handle || e.pointerId !== press.id) return;
-    if (!press.dragging && Math.hypot(e.clientX - press.x, e.clientY - press.y) > DRAG_START) press.dragging = true;
+    if (!press.dragging && Math.hypot(e.clientX - press.x, e.clientY - press.y) > DRAG_START) {
+      press.dragging = true;
+      regions.pause(); // on a large mesh, the curve's regions wait for the end of the drag
+    }
     if (!press.dragging) return;
     latest = { handle: press.handle, x: e.clientX, y: e.clientY };
     // At most one recomputation per frame, with the newest position.
@@ -80,6 +83,7 @@ export function setupInteraction({ stage, viewer, picker, view, model, engine, t
       release();
       if (p.dragging) {
         moveHandle(p.handle, e.clientX, e.clientY);
+        regions.resume();
         return;
       }
     }
@@ -91,12 +95,17 @@ export function setupInteraction({ stage, viewer, picker, view, model, engine, t
     }
     // What is drawn on a surface wins over the surface; empty space selects nothing.
     model.select(
-      view.pointAt(e.clientX, e.clientY) ?? view.curveAt(e.clientX, e.clientY) ?? picker.pickAt(e.clientX, e.clientY)?.id ?? null
+      view.pointAt(e.clientX, e.clientY) ??
+        view.curveAt(e.clientX, e.clientY) ??
+        view.regionAt(e.clientX, e.clientY) ??
+        picker.pickAt(e.clientX, e.clientY)?.id ??
+        null
     );
   });
 
   window.addEventListener('pointercancel', () => {
     if (press?.handle) release();
+    if (press?.dragging) regions.resume();
     press = null;
   });
 }

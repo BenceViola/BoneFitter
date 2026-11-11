@@ -10,6 +10,9 @@
 // A curve is drawn as a line along its path across the surface. The points
 // that were clicked are shown as small diamonds ("handles") on the curve
 // that is selected or being drawn, where they can be clicked and dragged.
+//
+// A region is drawn as a see-through tint: a copy of just its triangles,
+// laid over the surface. Its edge is therefore exactly the region's edge.
 
 import * as THREE from 'three';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
@@ -19,6 +22,8 @@ import { BONE, displayGeometry } from './viewer.js';
 
 const POINT_COLORS = { placed: 0x2f63e0, estimated: 0xd98a00 };
 const CURVE_COLOR = 0x0e9fc7;
+const REGION_COLOR = 0x0e9fc7;
+const REGION_OPACITY = 0.4;
 const HANDLE_COLOR = 0xffffff;
 const SELECTED = 0xe0337a;
 const MESH_GLOW = 0x16264d; // added to a selected mesh's colour
@@ -113,6 +118,20 @@ export class SceneView {
     return hit.object.name;
   }
 
+  // The region whose triangles are under a screen position; where regions
+  // overlap, the smallest. Null beside the mesh or on bare surface.
+  regionAt(clientX, clientY) {
+    const hit = this.picker.pickAt(clientX, clientY);
+    const face = hit?.anchor?.face;
+    if (!Number.isInteger(face)) return null;
+    let best = null;
+    for (const node of this.model.children(hit.id)) {
+      if (node.kind !== 'region' || !this.model.isShown(node.id) || !hasFace(node.faces, face)) continue;
+      if (!best || node.faceCount < best.faceCount) best = node;
+    }
+    return best ? best.id : null;
+  }
+
   // The handle (clicked point of a curve) under a screen position:
   // { id, index }, or null. Only curves that show their handles count.
   handleAt(clientX, clientY) {
@@ -198,6 +217,7 @@ export class SceneView {
       for (const id of ids) {
         const node = this.model.get(id);
         if (node?.kind === 'curve') this._drawCurve(node);
+        else if (node?.kind === 'region') this._drawRegion(node);
       }
     }
     if (kind === 'select' || kind === 'remove' || kind === 'add') this._showSelection();
@@ -221,6 +241,21 @@ export class SceneView {
       const handles = new THREE.Group();
       handles.name = 'handles';
       obj.add(line, handles);
+    } else if (node.kind === 'region') {
+      const material = new THREE.MeshBasicMaterial({
+        color: REGION_COLOR,
+        transparent: true,
+        opacity: REGION_OPACITY,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+        // In front of the surface (pushed back by 1), behind the lines drawn on it.
+        polygonOffset: true,
+        polygonOffsetFactor: 0.5,
+        polygonOffsetUnits: 0.5,
+      });
+      obj = new THREE.Mesh(new THREE.BufferGeometry(), material);
+      obj.userData.region = true;
+      obj.renderOrder = 1;
     } else {
       // A folder, or a point with no position (a missing landmark): nothing to draw.
       obj = new THREE.Group();
@@ -231,6 +266,34 @@ export class SceneView {
     parent.add(obj);
     this.objects.set(node.id, obj);
     if (node.kind === 'curve') this._drawCurve(node);
+    if (node.kind === 'region') this._drawRegion(node);
+  }
+
+  // Bring a region's tint up to date with its node: a copy of its triangles.
+  _drawRegion(node) {
+    const obj = this.objects.get(node.id);
+    const source = this.sources.get(node.parent);
+    if (!obj || !source) return;
+    const faces = node.faces || [];
+    const from = source.attributes.position;
+    const index = source.index;
+    const positions = new Float32Array(faces.length * 9);
+    for (let i = 0; i < faces.length; i++) {
+      for (let k = 0; k < 3; k++) {
+        const v = index ? index.getX(3 * faces[i] + k) : 3 * faces[i] + k;
+        positions[9 * i + 3 * k] = from.getX(v);
+        positions[9 * i + 3 * k + 1] = from.getY(v);
+        positions[9 * i + 3 * k + 2] = from.getZ(v);
+      }
+    }
+    obj.geometry.dispose();
+    obj.geometry = new THREE.BufferGeometry();
+    obj.geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+    obj.userData.empty = faces.length === 0;
+    obj.visible = node.visible && faces.length > 0;
+    const on = node.id === this.model.selectedId;
+    obj.material.color.setHex(on ? SELECTED : REGION_COLOR);
+    obj.material.opacity = on ? REGION_OPACITY + 0.1 : REGION_OPACITY;
   }
 
   // Bring a curve's line and handles up to date with its node.
@@ -283,6 +346,9 @@ export class SceneView {
       const line = obj.getObjectByName('line');
       line.geometry.dispose();
       line.material.dispose();
+    } else if (obj.userData.region) {
+      obj.geometry.dispose();
+      obj.material.dispose();
     }
   }
 
@@ -313,10 +379,24 @@ export class SceneView {
       const on = id === next;
       if (obj.userData.marker) obj.material.color.setHex(on ? SELECTED : obj.userData.color);
       if (obj.userData.curve) this._drawCurve(this.model.get(id));
+      if (obj.userData.region) this._drawRegion(this.model.get(id));
       const surface = obj.getObjectByName('surface');
       if (surface) surface.material.emissive.setHex(on ? MESH_GLOW : 0x000000);
     }
     this._selected = next;
     this._sizeMarkers();
   }
+}
+
+// Is `face` in the sorted list `faces`?
+function hasFace(faces, face) {
+  let lo = 0;
+  let hi = (faces?.length ?? 0) - 1;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (faces[mid] === face) return true;
+    if (faces[mid] < face) lo = mid + 1;
+    else hi = mid - 1;
+  }
+  return false;
 }

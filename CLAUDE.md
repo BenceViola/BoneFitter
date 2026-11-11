@@ -2,7 +2,7 @@
 
 Browser app for fitting geometric primitives (lines, planes, spheres, cylinders) to STL/PLY meshes of bones, to quantify structures such as epiphyses and joint surfaces. Sister app of Landmarker3D and landmarker2D: same stack, same look, opened from GitHub Pages, nothing installed, no data leaves the computer. The owner is a morphometrician, not a web developer: explain changes in plain terms.
 
-**State (v0.2):** meshes and landmark files open into an object tree, and curves can be drawn on a mesh (open or closed, following the surface). Nothing is fitted, constructed, measured, moved or saved yet. Next: closed curves into regions, then the first fit (see Build order).
+**State (v0.3):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose). Nothing is fitted, constructed, measured, moved or saved yet. Next: the first fit (see Build order).
 
 ## Ground rules (do not break these)
 
@@ -22,8 +22,8 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `index.html` | Page, styles (colour tokens, light and dark), import map |
 | `js/main.js` | Wiring: viewer, panels, toolbar and tool buttons, keyboard, drag and drop, messages |
 | `js/interaction.js` | Mouse and touch in the 3D view: click to select (or to the tool in use), dragging a curve's handle |
-| `js/scene-model.js` | The object tree: nodes (`mesh`, `group`, `point`, `curve`), attaching, hiding, removing, updating, selecting. No three.js |
-| `js/scene-view.js` | Draws the tree: one three.js object per node, nested as in the tree; markers, curve lines and handles; what is under the cursor (`pointAt`, `curveAt`, `handleAt`); the box the camera frames |
+| `js/scene-model.js` | The object tree: nodes (`mesh`, `group`, `point`, `curve`, `region`), attaching, hiding, removing, updating, selecting. No three.js |
+| `js/scene-view.js` | Draws the tree: one three.js object per node, nested as in the tree; markers, curve lines and handles, region tints; what is under the cursor (`pointAt`, `curveAt`, `handleAt`, `regionAt`); the box the camera frames |
 | `js/viewer.js` | three.js scene, camera, lights, framing; `displayGeometry` (the drawn copy of a mesh) |
 | `js/picking.js` | BVH raycasting over several meshes; hits in the mesh file's coordinates wherever the mesh is |
 | `js/mesh-loader.js` | STL/PLY reading, raw counts, SHA-256, triangle-only checks |
@@ -33,6 +33,8 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `js/properties-panel.js` | Properties of the selected object; `describe()` is the pure part |
 | `js/curves.js`, `js/geodesic.js` | Landmarker3D's curve maths and shortest paths across a surface, unchanged. Pure maths, no three.js |
 | `js/curve-engine.js` | Computes a curve node on its mesh: path across the surface, length, centroid. One corner table per mesh, built on first use; cached stretches |
+| `js/region.js` | Which triangles closed curves enclose: a fence along triangle edges following each curve, spreading over the surface, choosing the part. Pure maths on the corner table, no three.js |
+| `js/region-engine.js` | Regions as tree objects: made from closed curves, recomputed when a boundary curve changes, removed with their last boundary |
 | `js/curve-tool.js` | The Curve tool as a state machine (`click`, `finish`, `close`, `undo`, `cancel`); no page or mouse, so it is unit-tested |
 | `js/sample.js` | The example mesh shown at start: a toy femur of exact shapes, with its true measurements in `EXAMPLE` |
 
@@ -40,7 +42,11 @@ All changes to the tree go through `SceneModel`, which fires a `change` event (`
 
 A curve node holds what was clicked (`control_points` with the triangle each is on, `closed`, `path`) in the same form as a curve entry of a landmark file, plus what was computed from that (`line`, `length`, `centroid`, `used`, `warning`). Change a curve only through `CurveEngine.set()` or `refresh()`, so the computed part never goes stale. A curve being drawn is a real node from its first point (`drawing: true`).
 
-`tests/scene-helpers.js` builds the model, picker, view, engine and tool on a fake 100 × 100 px canvas, so anything short of real pixels can be unit-tested.
+A region node holds what it was made from (`boundary`: curve ids, `flipped`) and what was computed from that (`faces`: the file's face numbers in rising order, `faceCount`, `area`, `centroid`, `error`). Change a region only through `RegionEngine` (`create`, `set`, `addBoundary`, `refresh`). The region engine listens to the tree, so moving a curve's point recomputes its regions; because it reacts inside the curve's `update` event, later listeners see the region's `update` before the curve's.
+
+This is the pattern for everything that depends on something else (curve → region → fitted primitive): the dependent stores the ids it was made from, an engine recomputes it when those change, and the computed fields are never edited directly.
+
+`tests/scene-helpers.js` builds the model, picker, view, engines and tool on a fake 100 × 100 px canvas, so anything short of real pixels can be unit-tested.
 
 ## Tests
 
@@ -50,7 +56,7 @@ A curve node holds what was clicked (`control_points` with the triangle each is 
 
 ## Deployment
 
-GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.2`) shows which version is live; raise it with each feature that goes live.
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.3`) shows which version is live; raise it with each feature that goes live.
 
 ## Writing for the UI
 
@@ -73,7 +79,8 @@ Short, plain sentences from the user's side of the screen. Errors say what went 
 Raised in the design discussion; check with the owner before building on any of these.
 
 - A Properties panel under the tree for the selected object's parameters (built in v0.1 for meshes and points), with a toggle between mesh and scene coordinates once meshes can be moved.
-- Regions from closed curves (the landmark format's reserved `surfaces` slot, `boundary` = curve ids): spread from a starting triangle and stop at the curve; accurate to about one triangle. Default to the smaller side, with a flip button, and store the choice. Several boundaries per region (an articular surface minus the fovea; the band between two rings for a shaft). A loop that crosses itself or doesn't separate the surface is reported, not turned into "everything".
+- Cutting triangles along the curve, if a region edge that follows triangle edges (within about one triangle of the curve) proves too coarse on real scans.
+- Taking a single boundary off a region (for now: remove that curve, or the region).
 - "Fit, drop faces beyond a tolerance, fit again" to make a fit less dependent on exactly where the boundary was drawn. Painting or lasso only as a fallback.
 - Operations on curves: a plane or a circle fitted to a curve, the area and centroid of the region it encloses. These use the computed path at even spacing, never the clicked points.
 - The chain curve → region → fitted primitive, each remembering what it was made from, so moving one clicked point updates everything after it.
@@ -86,10 +93,19 @@ Raised in the design discussion; check with the owner before building on any of 
 - A stored sign for plane normals and line directions, with a flip button.
 - Saving: a fitted primitive stores both its input (region, method) and its result, like curves in landmark-json; probably a `primitives` section in that format.
 
+## How regions work (built in v0.3 as proposed to the owner)
+
+- A region is made from the selected closed curve with the Region button and hangs under the curve's mesh. It corresponds to the landmark format's reserved `surfaces` entry with `boundary` = curve ids.
+- One curve: the smaller of the two parts it divides the surface into is the inside. "Use the other side" (`flipped`) takes everything else; the choice is stored.
+- Several curves (up to 8): the region is the part of the surface that touches all of them, such as the ring between an outer and an inner loop (an articular surface minus the fovea) or the band between two rings (a shaft segment).
+- No region, with the reason shown in Properties and a mark in the tree, when a curve crosses itself, does not divide the surface (a ring round a handle, a surface with holes), is no bigger than a few triangles, or jumps between separate pieces of the mesh.
+- Removing a boundary curve takes it off its regions; a region left without a boundary is removed with it.
+- While a curve's point is dragged, its regions follow at once on meshes up to 200,000 triangles and wait for the end of the drag on larger ones.
+
 ## Build order (agreed)
 
 1. Curves on the mesh: done in v0.2.
-2. Closed curves into regions, shown as a tint on the mesh with area and triangle count.
+2. Closed curves into regions, shown as a tint on the mesh with area and triangle count: done in v0.3.
 3. The first fit: a sphere on a region of the example's head, checked against `EXAMPLE.head`.
 
 ## Templates (kept for later)
@@ -103,7 +119,7 @@ A BoneFitter template would list steps (select a region, fit a primitive, constr
 
 ## Not done yet
 
-- Regions, fitting, constructing, measuring, moving meshes, saving and exporting.
+- Fitting, constructing, measuring, moving meshes, saving and exporting.
 - On a finished curve: adding or removing single points, opening or closing it again, and choosing straight (`euclidean`) paths. The engine supports all of these; there are no buttons for them yet.
 - Undo and redo.
 - Opening the curves of a landmark file (read past with a note).

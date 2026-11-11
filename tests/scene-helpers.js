@@ -7,6 +7,7 @@ import { SceneView } from '../js/scene-view.js';
 import { Picker } from '../js/picking.js';
 import { CurveEngine } from '../js/curve-engine.js';
 import { CurveTool } from '../js/curve-tool.js';
+import { RegionEngine } from '../js/region-engine.js';
 
 export function fakeViewer(cameraPos = [0, 0, 60], target = [0, 0, 0]) {
   const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 1000);
@@ -36,13 +37,14 @@ export function screenOf(viewer, point) {
   return [((v.x + 1) / 2) * 100, ((1 - v.y) / 2) * 100];
 }
 
-// Model, picker, view, curve engine and curve tool wired as in the app.
+// Model, picker, view, the curve and region engines and the curve tool, wired as in the app.
 export function scene(cameraPos, target) {
   const viewer = fakeViewer(cameraPos, target);
   const model = new SceneModel();
   const picker = new Picker(viewer);
   const view = new SceneView(viewer, picker, model);
   const engine = new CurveEngine(model, picker, (id) => view.sources.get(id) || null);
+  const regions = new RegionEngine(model, picker, engine);
   const busy = [];
   const ui = { setBusy: (t) => busy.push(t), nextFrame: async () => {} };
   const tool = new CurveTool({ model, picker, engine, view, ui });
@@ -57,7 +59,13 @@ export function scene(cameraPos, target) {
     return { position, anchor };
   };
   const clickOn = (point) => tool.click(...screenOf(viewer, point));
-  return { viewer, model, picker, view, engine, tool, ui, busy, addMesh, cp, clickOn };
+  // A finished curve through the given points (each put on the surface first).
+  const addCurve = (meshId, points, fields = {}) => {
+    const node = model.add('curve', { parent: meshId, path: 'geodesic', closed: true, control_points: points.map((p) => cp(meshId, p)), ...fields });
+    engine.refresh(node.id);
+    return node;
+  };
+  return { viewer, model, picker, view, engine, regions, tool, ui, busy, addMesh, cp, clickOn, addCurve };
 }
 
 export const events = (target) => {
