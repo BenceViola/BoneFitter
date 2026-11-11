@@ -6,9 +6,9 @@ A lightweight tool for fitting geometric primitives (lines, planes, spheres, cyl
 
 Nothing to install. Meshes are read on your own computer and never uploaded.
 
-## Where it stands (v0.5)
+## Where it stands (v0.6)
 
-The foundation, curves drawn on a mesh, regions enclosed by closed curves, and spheres, cylinders and planes fitted to them. Constructing, measuring, moving meshes and saving come next.
+The foundation, curves drawn on a mesh, regions enclosed by closed curves, spheres, cylinders and planes fitted to them, and new meshes made from regions. Constructing, measuring, moving meshes and saving the scene come next.
 
 - Opens binary and ASCII **STL** and **PLY** triangle meshes, several at once, each shown where its file puts it.
 - **Objects** (left): every mesh, with what is attached to it nested underneath. Click a name to select it, the eye to hide or show it.
@@ -19,6 +19,7 @@ The foundation, curves drawn on a mesh, regions enclosed by closed curves, and s
 - **Spheres**: select a region (or a closed curve) and press Sphere to fit a sphere to it: the best fit by distance to the surface, weighted by area. Properties give its centre, radius and diameter, how well it fits (RMS and largest deviation) and how much of the sphere the region covers. The sphere is refitted when its region changes. On the example's head it gives back the head's centre and radius as built.
 - **Cylinders**: select a region (or a closed curve) and press Cylinder. Properties give the axis (a point on it and its direction), radius, diameter, the axis ends the region spans and its length, how well it fits, and how far round the axis the region reaches.
 - **Planes**: select a region, or a curve, and press Plane. A plane fitted to a curve's path suits rims and margins. Properties give a point on the plane, its normal, its equation and how flat the data are. Flip normal (planes) and Flip direction (cylinders) turn the sign round without moving them.
+- **New meshes from regions**: in a region's Properties, "New mesh from region" makes a separate mesh of just that region, beside the original (which stays as it is). It is a copy: later changes to the region don't change it. Every mesh shows its **surface area**, and can be saved as **STL** or **PLY** for other software.
 - Opens **landmark files** (`.lmk.json`) from Landmarker3D: the landmarks appear as points attached to the mesh they were placed on, matched by the mesh's SHA-256.
 - Starts with an **example**: a toy femur built from exact shapes, so fits can be checked against known answers.
 

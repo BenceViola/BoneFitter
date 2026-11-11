@@ -15,6 +15,9 @@ import { CurveTool } from './curve-tool.js';
 import { setupInteraction } from './interaction.js';
 import { RegionEngine } from './region-engine.js';
 import { FitEngine } from './fit-engine.js';
+import { meshFromRegion } from './extract.js';
+import { stlBytes, plyBytes } from './mesh-export.js';
+import { saveFile, prepareSaving } from './file-io.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -213,6 +216,46 @@ window.addEventListener('drop', async (e) => {
   $('drop').hidden = true;
   await open([...e.dataTransfer.files]);
 });
+
+// ---- New meshes from regions, and saving meshes -----------------------------
+
+app.meshFromRegion = async (regionId) => {
+  const region = model.get(regionId);
+  const big = (region?.faceCount ?? 0) > 200000;
+  if (big) {
+    setBusy(`Making a mesh of ${region.faceCount.toLocaleString('en-US')} triangles…`);
+    await nextFrame();
+  }
+  try {
+    const node = await meshFromRegion(app, regionId);
+    if (node) {
+      clearMessage();
+      model.select(node.id);
+    }
+    return node;
+  } finally {
+    if (big) setBusy(null);
+  }
+};
+
+const STEM = (s) => String(s).replace(/\.(stl|ply)$/i, '');
+app.saveMesh = async (id, format) => {
+  const node = model.get(id);
+  const source = view.sources.get(id);
+  if (!node || !source) return null;
+  const filename = `${STEM(node.file || node.name)}.${format}`;
+  const data = new Uint8Array(format === 'stl' ? stlBytes(source) : plyBytes(source));
+  const description = format === 'stl' ? 'STL mesh' : 'PLY mesh';
+  try {
+    const r = await saveFile({ filename, data, types: [{ description, accept: { 'application/octet-stream': [`.${format}`] } }] });
+    if (r.status !== 'cancelled') showMessage('note', [`Saved “${r.name}”.`]);
+    return r;
+  } catch (err) {
+    showMessage('error', [err.message || 'The mesh could not be saved.']);
+    return null;
+  }
+};
+prepareSaving();
 
 // ---- Messages, busy, clipboard ---------------------------------------------
 

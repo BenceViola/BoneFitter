@@ -16,6 +16,7 @@ Copied on 2026-11-10 from Landmarker3D `main` at commit `39f17f1` ("Pages: also 
 | `js/curve-engine.js` | the computing half of `js/curve-view.js`, `advanced` branch | One corner table per mesh instead of one for the mesh on screen; stretches cached per mesh; results stored on the curve's node; adds the centroid of the path. |
 | `js/scene-view.js` (curves) | the drawing half of `js/curve-view.js`, `advanced` branch | The line and the handles (diamonds on the clicked points), nested under the mesh. No semilandmark dots, no labels. Handles show only on the selected curve. |
 | `js/interaction.js` | `js/interaction.js` | The same way of telling a click from a drag and of switching the camera controls off while a handle is dragged; the rest is new. |
+| `js/file-io.js` | same (`main`, at `39f17f1`) | None. Copied 2026-11-11. |
 | `js/sample.js` | `js/sample.js` | Same idea (a generated STL read back through the loader, away from the origin), different shape: a toy femur of exact parts instead of a pebble, with its true measurements exported as `EXAMPLE`. |
 | `index.html` (styles) | `index.html` | Colour tokens, fonts, buttons, messages, the busy overlay, the drop overlay and the view buttons. The layout is new. |
 | `js/main.js` (parts) | `js/main.js`, `js/interaction.js` | The theme hook, message and busy helpers, drag-and-drop, and the "a press that barely moves is a click" rule. |
@@ -32,7 +33,6 @@ Copied on 2026-11-10 from Landmarker3D `main` at commit `39f17f1` ("Pages: also 
 
 | When BoneFitter needs… | Take from Landmarker3D |
 |---|---|
-| Saving files (Save dialog, download fallbacks) | `js/file-io.js` |
 | Zipped hand-ins | `js/zip.js`, `js/handin.js` |
 | Equally spaced points along a curve in exports, the geomorph sliders file | `js/export-rows.js`, `js/sliders.js` on the `advanced` branch |
 | A plane through points, the 3 × 3 eigen solver, where a plane cuts a mesh | `js/planes.js`, `js/plane-view.js` on the `advanced` branch (with `tests/unit/planes.test.js`) |

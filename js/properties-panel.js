@@ -41,16 +41,29 @@ export function describe(model, id) {
   const rows = [];
   let copy = null;
   // Coordinates of something attached to a mesh are the mesh file's own.
-  const space = mesh ? `as in ${mesh.file}` : 'of the scene';
+  // A mesh made from a region keeps the coordinates of the file it came from.
+  const space = mesh ? `as in ${mesh.coordsFile ?? mesh.file}` : 'of the scene';
 
   if (node.kind === 'mesh') {
     const size = node.box ? node.box.max.map((v, i) => v - node.box.min[i]) : null;
-    rows.push(['File', node.file]);
-    rows.push(['Format', node.format]);
+    const from = node.madeFrom;
+    if (from) {
+      rows.push(['Made from', `${from.region} of ${from.mesh}`]);
+      rows.push(['Note', 'A copy of the region as it was. It does not change when the region does.']);
+    } else {
+      rows.push(['File', node.file]);
+      rows.push(['Format', node.format]);
+    }
     rows.push(['Triangles', int(node.faceCount), true]);
     rows.push(['Vertices', int(node.vertexCount), true]);
+    rows.push(['Surface area', num(node.area ?? 0), true]);
     if (size) rows.push(['Size (x × y × z)', size.map(num).join(' × '), true]);
+    if (from) rows.push(['Coordinates', space]);
     if (node.sha256) rows.push(['SHA-256', `${node.sha256.slice(0, 12)}…`, true]);
+    copy = [
+      'name\tfile\tmade_from\ttriangles\tvertices\tsurface_area',
+      [node.name, from ? '' : node.file, from ? `${from.region} of ${from.mesh}` : '', node.faceCount, node.vertexCount, node.area ?? 0].join('\t'),
+    ].join('\n');
   } else if (node.kind === 'group') {
     const points = model.children(id).filter((n) => n.kind === 'point');
     const missing = points.filter((p) => !p.position).length;
@@ -224,6 +237,8 @@ export function setupProperties(el, { model, copyText, app }) {
         ${node.kind === 'region' ? '<button type="button" class="btn small" id="prop-flip" title="Take the part on the other side of the boundary instead">Use the other side</button>' : ''}
         ${node.kind === 'plane' && !node.error ? '<button type="button" class="btn small" id="prop-flip-fit" title="Turn the normal the other way; the plane stays where it is">Flip normal</button>' : ''}
         ${node.kind === 'cylinder' && !node.error ? '<button type="button" class="btn small" id="prop-flip-fit" title="Turn the axis direction the other way; the axis stays where it is">Flip direction</button>' : ''}
+        ${node.kind === 'region' && !node.error ? '<button type="button" class="btn small" id="prop-extract" title="Make a new mesh of just this region. The original mesh stays as it is.">New mesh from region</button>' : ''}
+        ${node.kind === 'mesh' ? '<button type="button" class="btn small" id="prop-save-stl" title="Save this mesh as a binary STL file">Save as STL</button><button type="button" class="btn small" id="prop-save-ply" title="Save this mesh as a binary PLY file">Save as PLY</button>' : ''}
         <button type="button" class="btn small" id="prop-remove">Remove</button>
       </div>
       ${more}`;
@@ -244,6 +259,11 @@ export function setupProperties(el, { model, copyText, app }) {
     const id = model.selectedId;
     if (e.target.id === 'prop-remove') {
       model.remove(id);
+    } else if (e.target.id === 'prop-extract') {
+      e.target.disabled = true;
+      await app.meshFromRegion(id);
+    } else if (e.target.id === 'prop-save-stl' || e.target.id === 'prop-save-ply') {
+      await app.saveMesh(id, e.target.id === 'prop-save-stl' ? 'stl' : 'ply');
     } else if (e.target.id === 'prop-flip-fit') {
       app.fits.set(id, { flipped: !model.get(id).flipped });
     } else if (e.target.id === 'prop-flip') {

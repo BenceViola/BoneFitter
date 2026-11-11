@@ -48,8 +48,10 @@ export async function launch() {
 }
 
 // A fresh page with the app loaded and the example on screen.
-export async function openApp(browser, url, { width = 1280, height = 800 } = {}) {
-  const context = await browser.newContext({ viewport: { width, height } });
+// `init` is a script run in the page before the app starts.
+export async function openApp(browser, url, { width = 1280, height = 800, init = null } = {}) {
+  const context = await browser.newContext({ viewport: { width, height }, acceptDownloads: true });
+  if (init) await context.addInitScript(init);
   const page = await context.newPage();
   const errors = [];
   page.on('pageerror', (e) => errors.push(String(e)));

@@ -4,6 +4,7 @@
 // opened or dropped together.
 
 import { loadMeshBuffer, MeshLoadError } from './mesh-loader.js';
+import { meshArea } from './mesh-export.js';
 import { parseLandmarkFile, meshMatches, isLandmarkFileName, LandmarkFileError } from './landmark-file.js';
 
 // Above this many triangles in total, the view may get slow on a laptop.
@@ -22,6 +23,7 @@ export function meshFields(mesh, extra = {}) {
     vertexCount: mesh.vertexCount,
     sizeBytes: mesh.sizeBytes,
     hasColors: mesh.hasColors,
+    area: Math.round(meshArea(mesh.geometry) * 1e6) / 1e6,
     box: { min: min.toArray(), max: max.toArray() },
     ...extra,
   };

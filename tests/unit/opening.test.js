@@ -157,7 +157,8 @@ describe('the Properties panel', () => {
     assert.equal(rows(d).Triangles, node.faceCount.toLocaleString('en-US'));
     assert.match(rows(d)['Size (x × y × z)'], /^10\.000 × 10\.000 × 10\.000$/);
     assert.match(rows(d)['SHA-256'], /^[0-9a-f]{12}…$/);
-    assert.equal(d.copy, null);
+    assert.match(d.copy.split('\n')[1], /^FEMUR_007\.stl\tFEMUR_007\.stl\t\t\d+\t\d+\t[\d.]+$/, 'a row with the surface area to copy');
+    assert.ok(Math.abs(Number(rows(d)['Surface area']) - 4 * Math.PI * 25) < 0.05 * 4 * Math.PI * 25, 'the area of a ball of radius 5');
   });
 
   test('a point: coordinates to three decimals, and whose coordinates they are', async () => {

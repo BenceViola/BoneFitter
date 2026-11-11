@@ -2,7 +2,7 @@
 
 Browser app for fitting geometric primitives (lines, planes, spheres, cylinders) to STL/PLY meshes of bones, to quantify structures such as epiphyses and joint surfaces. Sister app of Landmarker3D and landmarker2D: same stack, same look, opened from GitHub Pages, nothing installed, no data leaves the computer. The owner is a morphometrician, not a web developer: explain changes in plain terms.
 
-**State (v0.5):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose); spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path. Lines, constructing, measuring, moving meshes and saving are not built yet.
+**State (v0.6):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose); spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path; a region can be made into a mesh of its own; every mesh shows its surface area and can be saved as STL or PLY. Lines, constructing, measuring, moving meshes and saving are not built yet.
 
 ## Ground rules (do not break these)
 
@@ -37,6 +37,9 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `js/region-engine.js` | Regions as tree objects: made from closed curves, recomputed when a boundary curve changes, removed with their last boundary |
 | `js/fit.js` | Fitting maths: area-weighted corners of a region's triangles; geometric sphere fit (algebraic start, then Levenberg–Marquardt) and coverage; least-squares plane (to triangles or a path); geometric cylinder fit (axis started from the surface normals) and arc covered; a 3 × 3 symmetric eigen solver. Pure maths, no three.js |
 | `js/fit-engine.js` | Fitted primitives as tree objects: fitted to a region (planes also to a curve), refitted when it changes, removed with it; `flipped` for planes and cylinders |
+| `js/mesh-export.js` | A region's triangles as a geometry of their own, surface area, binary STL and PLY writers (PLY joins corners at the same position). No page |
+| `js/extract.js` | New mesh from a region: built as if saved as STL and opened again, kept beside the original |
+| `js/file-io.js` | Landmarker3D's saving module, unchanged: Save dialog, claude.ai download capability, plain download |
 | `js/curve-tool.js` | The Curve tool as a state machine (`click`, `finish`, `close`, `undo`, `cancel`); no page or mouse, so it is unit-tested |
 | `js/sample.js` | The example mesh shown at start: a toy femur of exact shapes, with its true measurements in `EXAMPLE` |
 
@@ -60,7 +63,7 @@ This is the pattern for everything that depends on something else (curve → reg
 
 ## Deployment
 
-GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.5`) shows which version is live; raise it with each feature that goes live.
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.6`) shows which version is live; raise it with each feature that goes live.
 
 ## Writing for the UI
 
@@ -123,6 +126,14 @@ Raised in the design discussion; check with the owner before building on any of 
 - Cylinder: the starting axis is the direction the area-weighted surface normals spread least in; the circle across it is fitted algebraically; then axis point, direction and radius are refined together (Levenberg–Marquardt, analytic Jacobian). Reported: axis point (nearest the data's mean), unit direction (largest component positive), radius, diameter, the two axis ends the data span and the length between them, RMS and largest deviation, arc covered round the axis (from the triangles' angular spans, in 5° steps). Notes: the normals also spread along the axis (`spread` > 0.3: a round surface, axis poorly fixed), or the arc is under 90°.
 - Flip normal / Flip direction (`flipped`, stored): the plane or axis stays put, only its sign changes (d and the ends swap with it). This is the first part of the proposed "stored sign".
 
+## Meshes from regions, and saving meshes (built in v0.6, asked for by the owner)
+
+- "New mesh from region" (region Properties) makes a new top-level mesh of the region's triangles. The original is not changed. The new mesh is built by writing the triangles as a binary STL and reading that back, so it has the SHA-256 of the file "Save as STL" writes and that file is recognised when opened again.
+- It is a copy (snapshot): it keeps `madeFrom` (mesh, region, boundary curve names, side) for the record but does not follow later changes to the region. Its coordinates are the original file's (`coordsFile`), and it can have curves, regions and fits of its own. Made from the example, it goes with the example.
+- It is drawn in its own colour and slightly in front of the original it overlaps; hide the original to see it alone.
+- Every mesh shows its surface area (sum of triangle areas, `area` from `meshFields`) and has a row to copy.
+- Save as STL (binary, triangles with their own corners) and Save as PLY (binary little-endian, corners at exactly the same position joined into one vertex) for any mesh, through `file-io.js`. Vertex colours are not carried over.
+
 ## Build order (agreed)
 
 1. Curves on the mesh: done in v0.2.
@@ -140,7 +151,7 @@ A BoneFitter template would list steps (select a region, fit a primitive, constr
 
 ## Not done yet
 
-- Lines; constructing, measuring, moving meshes, saving and exporting.
+- Lines; constructing, measuring, moving meshes; saving the scene (curves, regions, fits) and exporting numbers.
 - A support plane (standing on a table) is still only proposed; the least-squares plane is not that.
 - A deviation map on the mesh, and refitting without faces beyond a tolerance (both proposed).
 - On a finished curve: adding or removing single points, opening or closing it again, and choosing straight (`euclidean`) paths. The engine supports all of these; there are no buttons for them yet.

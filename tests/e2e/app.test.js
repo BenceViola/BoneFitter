@@ -7,6 +7,9 @@ import {
   startServer, launch, openApp, clickAt, onScreen, openFiles, messageText, treeRows, properties, makeFiles,
 } from './helpers.js';
 import { EXAMPLE } from '../../js/sample.js';
+import { loadMeshBuffer } from '../../js/mesh-loader.js';
+import { readFile } from 'node:fs/promises';
+import { join } from 'node:path';
 
 let server, url, browser, files, current;
 
@@ -792,6 +795,104 @@ describe('fitted cylinders and planes', () => {
     await page.locator('#tree .tree-name', { hasText: 'Example femur' }).click();
     await clickAt(page, await onScreen(page, f.point));
     assert.equal((await properties(page)).name, 'Plane 1');
+  });
+});
+
+describe('meshes from regions', () => {
+  const unit = (v) => v.map((x) => x / Math.hypot(...v));
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const HOME = unit([0.45, 0.35, 1]);
+  const E1 = unit(cross(HOME, [0, 1, 0]));
+  const E2 = cross(HOME, E1);
+  const R = EXAMPLE.head.radius;
+  const headLoop = (angle, n = 8) =>
+    Array.from({ length: n }, (_, k) => {
+      const a = (angle * Math.PI) / 180;
+      const t = (2 * Math.PI * k) / n;
+      return EXAMPLE.head.centre.map((c, i) => c + R * (Math.cos(a) * HOME[i] + Math.sin(a) * (Math.cos(t) * E1[i] + Math.sin(t) * E2[i])));
+    });
+  const node = (page, id) =>
+    page.evaluate((i) => {
+      const { faces, line, ...rest } = window.__bf.model.get(i) ?? {};
+      return rest.id ? rest : null;
+    }, id);
+  // Browsers with a Save dialog would open it; these tests take the plain download instead.
+  const noDialog = () => { delete window.showSaveFilePicker; };
+
+  async function regionOnHead(page) {
+    await page.locator('#curve-btn').click();
+    for (const p of headLoop(35, 10)) await clickAt(page, await onScreen(page, p));
+    await page.keyboard.press('c');
+    await page.locator('#curve-btn').click();
+    await page.locator('#region-btn').click();
+  }
+
+  test('New mesh from region adds a mesh of just the region, with its surface area; the original stays', async () => {
+    const page = await start();
+    await regionOnHead(page);
+    const region = await node(page, 'r1');
+    await page.locator('#prop-extract').click();
+    await page.waitForFunction(() => window.__bf.model.get('m2'));
+    assert.deepEqual((await treeRows(page)).map((r) => [r.name, r.kind, r.depth, r.selected]), [
+      ['Example femur', 'mesh', 0, false],
+      ['Curve 1', 'curve', 1, false],
+      ['Region 1', 'region', 1, false],
+      ['Region 1 of Example femur', 'mesh', 0, true],
+    ]);
+    const p = await properties(page);
+    assert.equal(p.kind, 'Mesh');
+    assert.equal(p.rows['Made from'], 'Region 1 of Example femur');
+    assert.equal(p.rows['Surface area'], region.area.toFixed(3));
+    assert.equal(p.rows.Triangles, region.faceCount.toLocaleString('en-US'));
+    assert.equal(p.rows.Coordinates, 'as in example-femur.stl');
+    assert.equal(await page.locator('#space-note').innerText(), '2 meshes · coordinates as in each mesh file');
+    // The original is untouched and still has everything on it.
+    assert.equal((await node(page, 'm1')).faceCount, 65280);
+  });
+
+  test('hiding the original leaves the new mesh on its own; clicking it selects it', async () => {
+    const page = await start();
+    await regionOnHead(page);
+    await page.locator('#prop-extract').click();
+    await page.waitForFunction(() => window.__bf.model.get('m2'));
+    await page.locator('#tree li[data-id="m1"] > .tree-row .eye').click();
+    await page.locator('#tree li[data-id="m2"] > .tree-row .eye').click();
+    await page.locator('#tree li[data-id="m2"] > .tree-row .eye').click();
+    await clickAt(page, await onScreen(page, headLoop(0)[0]));
+    assert.equal((await properties(page)).name, 'Region 1 of Example femur');
+    await clickAt(page, await onScreen(page, EXAMPLE.shaft.point.map((v, i) => v + [0, 50, 7][i])));
+    assert.equal(await properties(page), null, 'the hidden original can\'t be clicked');
+  });
+
+  test('Save as STL downloads the new mesh; opening that file again is recognised as already open', async () => {
+    const page = await start({ init: noDialog });
+    await regionOnHead(page);
+    await page.locator('#prop-extract').click();
+    await page.waitForFunction(() => window.__bf.model.get('m2'));
+    const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#prop-save-stl').click()]);
+    assert.equal(download.suggestedFilename(), 'example-femur-region-1.stl');
+    const path = join(files.dir, 'saved.stl');
+    await download.saveAs(path);
+    const saved = await loadMeshBuffer((await readFile(path)).buffer, 'saved.stl');
+    const m = await node(page, 'm2');
+    assert.equal(saved.faceCount, m.faceCount);
+    assert.equal(saved.sha256, m.sha256);
+    assert.match(await messageText(page), /Saved “example-femur-region-1.stl”/);
+  });
+
+  test('Save as PLY downloads a PLY with shared vertices', async () => {
+    const page = await start({ init: noDialog });
+    await regionOnHead(page);
+    await page.locator('#prop-extract').click();
+    await page.waitForFunction(() => window.__bf.model.get('m2'));
+    const [download] = await Promise.all([page.waitForEvent('download'), page.locator('#prop-save-ply').click()]);
+    assert.equal(download.suggestedFilename(), 'example-femur-region-1.ply');
+    const path = join(files.dir, 'saved.ply');
+    await download.saveAs(path);
+    const saved = await loadMeshBuffer((await readFile(path)).buffer, 'saved.ply');
+    const m = await node(page, 'm2');
+    assert.equal(saved.faceCount, m.faceCount);
+    assert.ok(saved.vertexCount < m.faceCount, `${saved.vertexCount} vertices`);
   });
 });
 

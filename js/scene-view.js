@@ -23,6 +23,7 @@ import { FIT_KINDS } from './fit-engine.js';
 
 const POINT_COLORS = { placed: 0x2f63e0, estimated: 0xd98a00 };
 const CURVE_COLOR = 0x0e9fc7;
+const DERIVED = 0x9cc3d8; // a mesh made from a region
 const REGION_COLOR = 0x0e9fc7;
 const REGION_OPACITY = 0.4;
 const FIT_COLOR = 0xd97706;
@@ -72,14 +73,17 @@ export class SceneView {
     const group = new THREE.Group();
     group.name = node.id;
     const material = new THREE.MeshStandardMaterial({
-      color: BONE,
+      // A mesh made from a region has its own colour, so it stands out on the original it overlaps.
+      color: node.madeFrom ? DERIVED : BONE,
       roughness: 0.82,
       metalness: 0,
       side: THREE.DoubleSide,
       // Pushed back a hair in depth, so lines drawn on the surface aren't hidden in it.
       polygonOffset: true,
-      polygonOffsetFactor: 1,
-      polygonOffsetUnits: 1,
+      // A mesh made from a region lies exactly on its original: it is pushed back
+      // a little less, so it is drawn in front of it.
+      polygonOffsetFactor: node.madeFrom ? 0.75 : 1,
+      polygonOffsetUnits: node.madeFrom ? 0.75 : 1,
     });
     const surface = new THREE.Mesh(displayGeometry(source), material);
     surface.name = 'surface';
