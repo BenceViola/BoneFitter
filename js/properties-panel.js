@@ -7,11 +7,16 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 const int = (n) => Number(n).toLocaleString('en-US');
 const num = (n) => Number(n).toFixed(3);
 import { capAngle } from './fit.js';
+import { FIT_KINDS } from './fit-engine.js';
+
+// Above this, a cylinder's surface curves almost as much along it as round it.
+const ROUND_SPREAD = 0.3;
+const dir = (n) => Number(n).toFixed(4);
 
 // Below this cap angle (degrees) a fitted sphere's size is poorly fixed.
 const SHALLOW_CAP = 30;
 
-const KIND = { mesh: 'Mesh', group: 'Landmark file', point: 'Point', curve: 'Curve', region: 'Region', sphere: 'Sphere' };
+const KIND = { mesh: 'Mesh', group: 'Landmark file', point: 'Point', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
 
 // Why curves give no region, for the person looking at it.
 const REGION_PROBLEMS = {
@@ -100,37 +105,85 @@ export function describe(model, id) {
         [node.name, boundary, node.flipped ? 'other' : node.boundary.length > 1 ? 'between' : 'inside', node.faceCount, node.area, ...node.centroid].join('\t'),
       ].join('\n');
     }
-  } else if (node.kind === 'sphere') {
-    const region = model.get(node.source);
-    rows.push(['Fitted to', region?.name ?? '?']);
-    rows.push(['Method', 'best fit: smallest squared distances to the surface']);
-    if (node.error) {
-      const problems = {
-        region: `“${region?.name}” encloses nothing at the moment, so there is nothing to fit. See its Properties.`,
-        'no-region': 'Its region is gone.',
-        flat: 'The region is (nearly) flat, so no sphere fits it. A plane would.',
-        few: 'The region has too few triangles to fit a sphere to.',
-      };
-      rows.push(['Problem', problems[node.error] ?? 'No sphere could be fitted.']);
-    } else {
-      ['x', 'y', 'z'].forEach((axis, i) => rows.push([`Centre ${axis}`, num(node.centre[i]), true]));
-      rows.push(['Radius', num(node.radius), true]);
-      rows.push(['Diameter', num(2 * node.radius), true]);
-      rows.push(['RMS deviation', num(node.rms), true]);
-      rows.push(['Largest deviation', num(node.maxDeviation), true]);
-      rows.push(['Coverage', `${(100 * node.coverage).toFixed(1)}% of the sphere (a cap of ${Math.round(capAngle(node.coverage))}°)`]);
-      rows.push(['Triangles', int(node.faceCount), true]);
-      rows.push(['Coordinates', space]);
-      if (capAngle(node.coverage) < SHALLOW_CAP) {
-        rows.push(['Note', 'The region covers only a small part of the sphere, so the radius and centre are less certain than the deviations suggest.']);
-      }
-      copy = [
-        'name\tfitted_to\tcentre_x\tcentre_y\tcentre_z\tradius\trms_deviation\tmax_deviation\tcoverage\ttriangles',
-        [node.name, region?.name ?? '', ...node.centre, node.radius, node.rms, node.maxDeviation, node.coverage, node.faceCount].join('\t'),
-      ].join('\n');
-    }
+  } else if (FIT_KINDS.has(node.kind)) {
+    copy = describeFit(model, node, rows, space);
   }
   return { title: node.name, kind: KIND[node.kind], rows, copy };
+}
+
+// The rows for a fitted primitive. Returns the text to copy, or null.
+function describeFit(model, node, rows, space) {
+  const source = model.get(node.source);
+  const what = { sphere: 'sphere', plane: 'plane', cylinder: 'cylinder' }[node.kind];
+  rows.push(['Fitted to', source ? (source.kind === 'curve' ? `${source.name} (its path)` : source.name) : '?']);
+  rows.push(['Method', 'best fit: smallest squared distances']);
+  if (node.error) {
+    const problems = {
+      region: `“${source?.name}” encloses nothing at the moment, so there is nothing to fit. See its Properties.`,
+      curve: `“${source?.name}” has no path yet.`,
+      'no-source': 'What it was fitted to is gone.',
+      flat: `The region is (nearly) flat, so no ${what} fits it. A plane would.`,
+      few: `There are too few points to fit a ${what} to.`,
+      line: 'The points lie on one line, so no single plane goes through them.',
+    };
+    rows.push(['Problem', problems[node.error] ?? `No ${what} could be fitted.`]);
+    return null;
+  }
+  const xyz = (label, v, f = num) => ['x', 'y', 'z'].forEach((axis, i) => rows.push([`${label} ${axis}`, f(v[i]), true]));
+  const fit = () => {
+    rows.push(['RMS deviation', num(node.rms), true]);
+    rows.push(['Largest deviation', num(node.maxDeviation), true]);
+  };
+  const fromRegion = source?.kind === 'region';
+  const name = source?.name ?? '';
+  if (node.kind === 'sphere') {
+    xyz('Centre', node.centre);
+    rows.push(['Radius', num(node.radius), true]);
+    rows.push(['Diameter', num(2 * node.radius), true]);
+    fit();
+    rows.push(['Coverage', `${(100 * node.coverage).toFixed(1)}% of the sphere (a cap of ${Math.round(capAngle(node.coverage))}°)`]);
+    rows.push(['Triangles', int(node.faceCount), true]);
+    rows.push(['Coordinates', space]);
+    if (capAngle(node.coverage) < SHALLOW_CAP) {
+      rows.push(['Note', 'The region covers only a small part of the sphere, so the radius and centre are less certain than the deviations suggest.']);
+    }
+    return [
+      'name\tfitted_to\tcentre_x\tcentre_y\tcentre_z\tradius\trms_deviation\tmax_deviation\tcoverage\ttriangles',
+      [node.name, name, ...node.centre, node.radius, node.rms, node.maxDeviation, node.coverage, node.faceCount].join('\t'),
+    ].join('\n');
+  }
+  if (node.kind === 'plane') {
+    xyz('Point', node.point);
+    xyz('Normal', node.normal, dir);
+    rows.push(['Equation', `${dir(node.normal[0])} x + ${dir(node.normal[1])} y + ${dir(node.normal[2])} z = ${num(node.d)}`, true]);
+    fit();
+    rows.push(fromRegion ? ['Triangles', int(node.faceCount), true] : ['Path length', num(node.pathLength), true]);
+    rows.push(['Coordinates', space]);
+    return [
+      `name\tfitted_to\tpoint_x\tpoint_y\tpoint_z\tnormal_x\tnormal_y\tnormal_z\td\trms_deviation\tmax_deviation\t${fromRegion ? 'triangles' : 'path_length'}`,
+      [node.name, name, ...node.point, ...node.normal, node.d, node.rms, node.maxDeviation, fromRegion ? node.faceCount : node.pathLength].join('\t'),
+    ].join('\n');
+  }
+  xyz('Axis point', node.point);
+  xyz('Direction', node.direction, dir);
+  rows.push(['Radius', num(node.radius), true]);
+  rows.push(['Diameter', num(2 * node.radius), true]);
+  rows.push(['Length', num(node.length), true]);
+  xyz('End 1', node.ends[0]);
+  xyz('End 2', node.ends[1]);
+  fit();
+  rows.push(['Arc covered', `${node.arc}°`]);
+  rows.push(['Triangles', int(node.faceCount), true]);
+  rows.push(['Coordinates', space]);
+  if (node.spread > ROUND_SPREAD) {
+    rows.push(['Note', 'The surface curves in every direction, not just round an axis, so the axis is poorly fixed. A sphere may fit better.']);
+  } else if (node.arc < 90) {
+    rows.push(['Note', 'The region covers less than a quarter of the way round, so the radius and axis are less certain than the deviations suggest.']);
+  }
+  return [
+    'name\tfitted_to\tpoint_x\tpoint_y\tpoint_z\tdirection_x\tdirection_y\tdirection_z\tradius\tlength\tend1_x\tend1_y\tend1_z\tend2_x\tend2_y\tend2_z\trms_deviation\tmax_deviation\tarc_degrees\ttriangles',
+    [node.name, name, ...node.point, ...node.direction, node.radius, node.length, ...node.ends[0], ...node.ends[1], node.rms, node.maxDeviation, node.arc, node.faceCount].join('\t'),
+  ].join('\n');
 }
 
 // Full precision goes on the clipboard; the panel shows three decimals.
@@ -169,6 +222,8 @@ export function setupProperties(el, { model, copyText, app }) {
       <div class="props-actions">
         ${d.copy ? '<button type="button" class="btn small" id="prop-copy">Copy numbers</button>' : ''}
         ${node.kind === 'region' ? '<button type="button" class="btn small" id="prop-flip" title="Take the part on the other side of the boundary instead">Use the other side</button>' : ''}
+        ${node.kind === 'plane' && !node.error ? '<button type="button" class="btn small" id="prop-flip-fit" title="Turn the normal the other way; the plane stays where it is">Flip normal</button>' : ''}
+        ${node.kind === 'cylinder' && !node.error ? '<button type="button" class="btn small" id="prop-flip-fit" title="Turn the axis direction the other way; the axis stays where it is">Flip direction</button>' : ''}
         <button type="button" class="btn small" id="prop-remove">Remove</button>
       </div>
       ${more}`;
@@ -189,6 +244,8 @@ export function setupProperties(el, { model, copyText, app }) {
     const id = model.selectedId;
     if (e.target.id === 'prop-remove') {
       model.remove(id);
+    } else if (e.target.id === 'prop-flip-fit') {
+      app.fits.set(id, { flipped: !model.get(id).flipped });
     } else if (e.target.id === 'prop-flip') {
       app.regions.set(id, { flipped: !model.get(id).flipped });
     } else if (e.target.id === 'prop-copy') {

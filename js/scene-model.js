@@ -20,10 +20,11 @@
 //                  (the other side). What was computed from that
 //                  (region-engine.js): faces (the file's face numbers),
 //                  faceCount, area, centroid, error.
-//   kind 'sphere'  a sphere fitted to a region. What it was made from:
-//                  source (the region's id), method. What was computed
-//                  (fit-engine.js): centre, radius, rms, maxDeviation,
-//                  coverage, faceCount, area, error.
+//   kind 'sphere', 'plane', 'cylinder'
+//                  a primitive fitted to a region (a plane also to a
+//                  curve). What it was made from: source (the region's or
+//                  curve's id), method, flipped (planes and cylinders).
+//                  What was computed: see fit-engine.js.
 //
 // `parent` is the id of the node this one is attached to, or null for the
 // top level. Something attached to a mesh is given in that mesh's own file
@@ -34,8 +35,8 @@
 // template, when the app gets one, will say which objects to create, and
 // this is the link from an object back to the template step it fulfils.
 
-const PREFIX = { mesh: 'm', group: 'g', point: 'p', curve: 'c', region: 'r', sphere: 's' };
-const LABEL = { mesh: 'Mesh', group: 'Group', point: 'Point', curve: 'Curve', region: 'Region', sphere: 'Sphere' };
+const PREFIX = { mesh: 'm', group: 'g', point: 'p', curve: 'c', region: 'r', sphere: 's', plane: 'f', cylinder: 'y' };
+const LABEL = { mesh: 'Mesh', group: 'Group', point: 'Point', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
 
 export class SceneModel extends EventTarget {
   constructor() {

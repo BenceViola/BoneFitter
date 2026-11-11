@@ -72,7 +72,7 @@ if (webgl) {
   $('curve-undo').addEventListener('click', () => app.tool.undo());
   $('curve-cancel').addEventListener('click', () => app.tool.cancel());
   $('region-btn').addEventListener('click', makeRegion);
-  $('sphere-btn').addEventListener('click', fitSphere);
+  for (const kind of ['sphere', 'cylinder', 'plane']) $(`${kind}-btn`).addEventListener('click', () => fitPrimitive(kind));
 }
 const { tool } = app;
 
@@ -94,27 +94,33 @@ function makeRegion() {
   model.select(region.id);
 }
 
-// The Sphere button: fit a sphere to the selected region. With a closed
-// curve selected, its region is used, or made first.
-function fitSphere() {
+// The Sphere, Cylinder and Plane buttons: fit to the selected region. With
+// a closed curve selected, a sphere or cylinder uses the curve's region (made
+// first if there is none), while a plane is fitted to the curve's own path:
+// a rim or margin. A loop still being drawn is closed first.
+const FIT_NAMES = { sphere: 'Sphere', cylinder: 'Cylinder', plane: 'Plane' };
+function fitPrimitive(kind) {
   if (tool.draft && tool.state().canClose) tool.close();
-  let region = model.selected;
-  if (region?.kind === 'curve' && app.regions.canBound(region)) {
-    const curve = region;
-    region =
-      app.regions.regionsOf(curve.id).find((r) => r.boundary.length === 1 && !r.flipped) ?? app.regions.create(curve.id);
+  let source = model.selected;
+  if (source?.kind === 'curve' && kind !== 'plane' && app.regions.canBound(source)) {
+    const curve = source;
+    source = app.regions.regionsOf(curve.id).find((r) => r.boundary.length === 1 && !r.flipped) ?? app.regions.create(curve.id);
   }
-  if (region?.kind !== 'region') {
-    showMessage('note', ['Select a region (or a closed curve) first, then press Sphere. The sphere is fitted to the part of the mesh the region covers.']);
+  if (!app.fits.canFit(kind, source)) {
+    const what =
+      kind === 'plane'
+        ? 'Select a region or a curve first, then press Plane. The plane is fitted to the part of the mesh the region covers, or to the path of the curve.'
+        : `Select a region (or a closed curve) first, then press ${FIT_NAMES[kind]}. The ${kind} is fitted to the part of the mesh the region covers.`;
+    showMessage('note', [source?.kind === 'curve' && kind !== 'plane' ? `“${source.name}” is not a closed loop, so it encloses no region. ${what}` : what]);
     return;
   }
-  if (region.error) {
-    model.select(region.id);
-    showMessage('note', [`“${region.name}” encloses nothing at the moment, so there is nothing to fit. Its Properties say why.`]);
+  if (source.kind === 'region' && source.error) {
+    model.select(source.id);
+    showMessage('note', [`“${source.name}” encloses nothing at the moment, so there is nothing to fit. Its Properties say why.`]);
     return;
   }
   clearMessage();
-  model.select(app.fits.create(region.id).id);
+  model.select(app.fits.create(source.id, kind).id);
 }
 
 // The Curve button, and the strip of the tool's own buttons over the 3D view.

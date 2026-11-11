@@ -374,7 +374,7 @@
 <div class="app">
   <aside class="panel">
     <header class="brand">
-      <h1>BoneFitter <span class="ver">v0.4</span></h1>
+      <h1>BoneFitter <span class="ver">v0.5</span></h1>
     </header>
 
     <div id="message" class="message" role="alert" hidden></div>
@@ -402,6 +402,12 @@
       </button>
       <button type="button" class="btn tool" id="sphere-btn" title="Fit a sphere to the selected region (or to the region of the selected closed curve)">
         <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><ellipse cx="8" cy="8" rx="6" ry="2.2"/></svg>Sphere
+      </button>
+      <button type="button" class="btn tool" id="cylinder-btn" title="Fit a cylinder to the selected region (or to the region of the selected closed curve)">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="3.5" rx="4.5" ry="1.8"/><path d="M3.5 3.5v9c0 1 2 1.8 4.5 1.8s4.5-.8 4.5-1.8v-9"/></svg>Cylinder
+      </button>
+      <button type="button" class="btn tool" id="plane-btn" title="Fit a plane to the selected region, or to the path of the selected curve">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 11 5 5h9.5L11 11z"/></svg>Plane
       </button>
       <span class="spacer"></span>
       <div class="viewbar" role="group" aria-label="View along the axes">

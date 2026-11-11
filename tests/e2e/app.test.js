@@ -698,6 +698,103 @@ describe('fitted spheres', () => {
   });
 });
 
+describe('fitted cylinders and planes', () => {
+  const unit = (v) => v.map((x) => x / Math.hypot(...v));
+  const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const HOME = unit([0.45, 0.35, 1]);
+  // The shaft's side facing the camera in the default view, `deg` degrees either side, `y` up it.
+  const S = EXAMPLE.shaft;
+  const FRONT = (Math.atan2(HOME[2], HOME[0]) * 180) / Math.PI;
+  const onShaft = (deg, y) => {
+    const t = ((FRONT + deg) * Math.PI) / 180;
+    return [S.point[0] + S.radius * Math.cos(t), S.point[1] + y, S.point[2] + S.radius * Math.sin(t)];
+  };
+  // A loop on the head round the point facing the camera.
+  const E1 = unit(cross(HOME, [0, 1, 0]));
+  const E2 = cross(HOME, E1);
+  const R = EXAMPLE.head.radius;
+  const headLoop = (angle, n = 8) =>
+    Array.from({ length: n }, (_, k) => {
+      const a = (angle * Math.PI) / 180;
+      const t = (2 * Math.PI * k) / n;
+      return EXAMPLE.head.centre.map((c, i) => c + R * (Math.cos(a) * HOME[i] + Math.sin(a) * (Math.cos(t) * E1[i] + Math.sin(t) * E2[i])));
+    });
+  const node = (page, id) =>
+    page.evaluate((i) => {
+      const { faces, line, ...rest } = window.__bf.model.get(i) ?? {};
+      return rest.id ? rest : null;
+    }, id);
+  async function drawLoop(page, points) {
+    await page.locator('#curve-btn').click();
+    for (const p of points) await clickAt(page, await onScreen(page, p));
+    await page.keyboard.press('c');
+    await page.locator('#curve-btn').click();
+  }
+
+  test('Cylinder on a patch of the shaft gives back the shaft: its axis and radius as built', async () => {
+    const page = await start();
+    await drawLoop(page, [onShaft(-30, 30), onShaft(0, 30), onShaft(30, 30), onShaft(30, 70), onShaft(0, 70), onShaft(-30, 70)]);
+    await page.locator('#cylinder-btn').click();
+    assert.deepEqual((await treeRows(page)).map((r) => [r.name, r.kind, r.selected]), [
+      ['Example femur', 'mesh', false],
+      ['Curve 1', 'curve', false],
+      ['Region 1', 'region', false],
+      ['Cylinder 1', 'cylinder', true],
+    ]);
+    const p = await properties(page);
+    assert.equal(p.kind, 'Cylinder');
+    assert.equal(p.rows.Radius, '7.000');
+    assert.deepEqual(['x', 'y', 'z'].map((k) => p.rows[`Direction ${k}`]), ['0.0000', '1.0000', '0.0000']);
+    // The axis point lies on the shaft's axis: same x and z as the shaft.
+    assert.equal(p.rows['Axis point x'], S.point[0].toFixed(3));
+    assert.equal(p.rows['Axis point z'], S.point[2].toFixed(3));
+    const c = await node(page, 'y1');
+    assert.ok(c.arc >= 55 && c.arc <= 75, `arc ${c.arc}`);
+    assert.match(p.rows.Note, /less than a quarter of the way round/);
+
+    await page.locator('#prop-flip-fit').click();
+    assert.equal((await properties(page)).rows['Direction y'], '-1.0000');
+  });
+
+  test('Plane on a curve fits its path; on a region, the patch; Flip normal turns it round', async () => {
+    const page = await start();
+    await drawLoop(page, headLoop(30, 10));
+    await page.locator('#plane-btn').click();
+    assert.deepEqual(await names(page), ['Example femur', 'Curve 1', 'Plane 1']);
+    let p = await properties(page);
+    assert.equal(p.kind, 'Plane');
+    assert.equal(p.rows['Fitted to'], 'Curve 1 (its path)');
+    const fromCurve = await node(page, 'f1');
+    assert.ok(Math.abs(dot(fromCurve.normal, HOME)) > 0.999, `normal ${fromCurve.normal}`);
+    assert.match(p.rows.Equation, /x \+ .* y \+ .* z = /);
+
+    await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
+    await page.locator('#region-btn').click();
+    await page.locator('#plane-btn').click();
+    p = await properties(page);
+    assert.equal(p.rows['Fitted to'], 'Region 1');
+    const fromRegion = await node(page, 'f2');
+    assert.ok(dot(fromRegion.normal, HOME) > 0.999, 'square to the head\'s surface there, facing out');
+    await page.locator('#prop-flip-fit').click();
+    assert.ok(dot((await node(page, 'f2')).normal, HOME) < -0.999);
+  });
+
+  test('a click on a plane\'s centre mark selects it; Plane with nothing selected says what to select', async () => {
+    const page = await start();
+    await page.locator('#plane-btn').click();
+    assert.match(await messageText(page), /Select a region or a curve first/);
+    await page.locator('#cylinder-btn').click();
+    assert.match(await messageText(page), /Select a region \(or a closed curve\) first, then press Cylinder/);
+    await drawLoop(page, headLoop(30, 8));
+    await page.locator('#plane-btn').click();
+    const f = await node(page, 'f1');
+    await page.locator('#tree .tree-name', { hasText: 'Example femur' }).click();
+    await clickAt(page, await onScreen(page, f.point));
+    assert.equal((await properties(page)).name, 'Plane 1');
+  });
+});
+
 describe('view', () => {
   test('the axis buttons and F turn and refit the camera', async () => {
     const page = await start();

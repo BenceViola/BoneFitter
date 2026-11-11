@@ -2,7 +2,7 @@
 
 Browser app for fitting geometric primitives (lines, planes, spheres, cylinders) to STL/PLY meshes of bones, to quantify structures such as epiphyses and joint surfaces. Sister app of Landmarker3D and landmarker2D: same stack, same look, opened from GitHub Pages, nothing installed, no data leaves the computer. The owner is a morphometrician, not a web developer: explain changes in plain terms.
 
-**State (v0.4):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose); spheres can be fitted to regions. Planes, cylinders and lines, constructing, measuring, moving meshes and saving are not built yet.
+**State (v0.5):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose); spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path. Lines, constructing, measuring, moving meshes and saving are not built yet.
 
 ## Ground rules (do not break these)
 
@@ -22,8 +22,8 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `index.html` | Page, styles (colour tokens, light and dark), import map |
 | `js/main.js` | Wiring: viewer, panels, toolbar and tool buttons, keyboard, drag and drop, messages |
 | `js/interaction.js` | Mouse and touch in the 3D view: click to select (or to the tool in use), dragging a curve's handle |
-| `js/scene-model.js` | The object tree: nodes (`mesh`, `group`, `point`, `curve`, `region`, `sphere`), attaching, hiding, removing, updating, selecting. No three.js |
-| `js/scene-view.js` | Draws the tree: one three.js object per node, nested as in the tree; markers, curve lines and handles, region tints, fitted spheres (outline and centre mark, drawn through the mesh); what is under the cursor (`pointAt`, `fitAt`, `curveAt`, `handleAt`, `regionAt`); the box the camera frames |
+| `js/scene-model.js` | The object tree: nodes (`mesh`, `group`, `point`, `curve`, `region`, `sphere`, `cylinder`, `plane`), attaching, hiding, removing, updating, selecting. No three.js |
+| `js/scene-view.js` | Draws the tree: one three.js object per node, nested as in the tree; markers, curve lines and handles, region tints, fitted primitives (outline, a faint fill for planes, and a centre mark, all drawn through the mesh); what is under the cursor (`pointAt`, `fitAt`, `curveAt`, `handleAt`, `regionAt`); the box the camera frames |
 | `js/viewer.js` | three.js scene, camera, lights, framing; `displayGeometry` (the drawn copy of a mesh) |
 | `js/picking.js` | BVH raycasting over several meshes; hits in the mesh file's coordinates wherever the mesh is |
 | `js/mesh-loader.js` | STL/PLY reading, raw counts, SHA-256, triangle-only checks |
@@ -35,8 +35,8 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `js/curve-engine.js` | Computes a curve node on its mesh: path across the surface, length, centroid. One corner table per mesh, built on first use; cached stretches |
 | `js/region.js` | Which triangles closed curves enclose: a fence along triangle edges following each curve, spreading over the surface, choosing the part. Pure maths on the corner table, no three.js |
 | `js/region-engine.js` | Regions as tree objects: made from closed curves, recomputed when a boundary curve changes, removed with their last boundary |
-| `js/fit.js` | Fitting maths: area-weighted corners of a region's triangles, the geometric sphere fit (algebraic start, then Levenberg–Marquardt), coverage by solid angle. Pure maths, no three.js |
-| `js/fit-engine.js` | Fitted primitives as tree objects: fitted to a region, refitted when it changes, removed with it |
+| `js/fit.js` | Fitting maths: area-weighted corners of a region's triangles; geometric sphere fit (algebraic start, then Levenberg–Marquardt) and coverage; least-squares plane (to triangles or a path); geometric cylinder fit (axis started from the surface normals) and arc covered; a 3 × 3 symmetric eigen solver. Pure maths, no three.js |
+| `js/fit-engine.js` | Fitted primitives as tree objects: fitted to a region (planes also to a curve), refitted when it changes, removed with it; `flipped` for planes and cylinders |
 | `js/curve-tool.js` | The Curve tool as a state machine (`click`, `finish`, `close`, `undo`, `cancel`); no page or mouse, so it is unit-tested |
 | `js/sample.js` | The example mesh shown at start: a toy femur of exact shapes, with its true measurements in `EXAMPLE` |
 
@@ -46,7 +46,7 @@ A curve node holds what was clicked (`control_points` with the triangle each is 
 
 A region node holds what it was made from (`boundary`: curve ids, `flipped`) and what was computed from that (`faces`: the file's face numbers in rising order, `faceCount`, `area`, `centroid`, `error`). Change a region only through `RegionEngine` (`create`, `set`, `addBoundary`, `refresh`). The region engine listens to the tree, so moving a curve's point recomputes its regions; because it reacts inside the curve's `update` event, later listeners see the region's `update` before the curve's.
 
-A fitted sphere node holds what it was made from (`source`: the region's id, `method`) and what was computed (`centre`, `radius`, `rms`, `maxDeviation`, `coverage`, `faceCount`, `area`, `error`), in the mesh file's coordinates. Change it only through `FitEngine`. The fit engine reacts to a region's `update`, so a moved curve point flows curve → region → sphere in one go.
+A fitted node (`sphere`, `cylinder`, `plane`) holds what it was made from (`source`: a region's id, or a curve's for a plane; `method`; `flipped` for planes and cylinders) and what was computed (see the top of `fit-engine.js`; every kind has `rms`, `maxDeviation`, `error`), in the mesh file's coordinates. Change it only through `FitEngine` (`create(sourceId, kind)`, `set`, `refresh`). A failed fit clears every computed field (`EMPTY` in `fit-engine.js`), because `SceneModel.update` merges. The fit engine reacts to a region's or curve's `update`, so a moved curve point flows curve → region → fit in one go.
 
 This is the pattern for everything that depends on something else (curve → region → fitted primitive): the dependent stores the ids it was made from, an engine recomputes it when those change, and the computed fields are never edited directly.
 
@@ -60,7 +60,7 @@ This is the pattern for everything that depends on something else (curve → reg
 
 ## Deployment
 
-GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.4`) shows which version is live; raise it with each feature that goes live.
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.5`) shows which version is live; raise it with each feature that goes live.
 
 ## Writing for the UI
 
@@ -116,6 +116,13 @@ Raised in the design discussion; check with the owner before building on any of 
 - Drawn as an outline and a centre mark, both through the mesh. A click on the centre mark selects the sphere.
 - Removing a region removes the fits made from it.
 
+## How planes and cylinders work (built in v0.5)
+
+- Cylinder button: like Sphere (a region, or a closed curve's region). Plane button: a region, or the path of the selected curve (open or closed), for rims and margins.
+- Plane: least-squares (smallest eigenvector of the area- or length-weighted covariance). From a region the normal faces the way the triangles face (out of the bone); from a closed curve it follows the loop (right-hand rule); otherwise its largest component is positive. Reported: point (the weighted mean, on the plane), unit normal, equation n·x = d, RMS and largest deviation, triangles or path length.
+- Cylinder: the starting axis is the direction the area-weighted surface normals spread least in; the circle across it is fitted algebraically; then axis point, direction and radius are refined together (Levenberg–Marquardt, analytic Jacobian). Reported: axis point (nearest the data's mean), unit direction (largest component positive), radius, diameter, the two axis ends the data span and the length between them, RMS and largest deviation, arc covered round the axis (from the triangles' angular spans, in 5° steps). Notes: the normals also spread along the axis (`spread` > 0.3: a round surface, axis poorly fixed), or the arc is under 90°.
+- Flip normal / Flip direction (`flipped`, stored): the plane or axis stays put, only its sign changes (d and the ends swap with it). This is the first part of the proposed "stored sign".
+
 ## Build order (agreed)
 
 1. Curves on the mesh: done in v0.2.
@@ -133,7 +140,8 @@ A BoneFitter template would list steps (select a region, fit a primitive, constr
 
 ## Not done yet
 
-- Fitting planes, cylinders and lines; constructing, measuring, moving meshes, saving and exporting.
+- Lines; constructing, measuring, moving meshes, saving and exporting.
+- A support plane (standing on a table) is still only proposed; the least-squares plane is not that.
 - A deviation map on the mesh, and refitting without faces beyond a tolerance (both proposed).
 - On a finished curve: adding or removing single points, opening or closing it again, and choosing straight (`euclidean`) paths. The engine supports all of these; there are no buttons for them yet.
 - Undo and redo.

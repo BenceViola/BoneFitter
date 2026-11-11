@@ -19,6 +19,7 @@ import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
 import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js';
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { BONE, displayGeometry } from './viewer.js';
+import { FIT_KINDS } from './fit-engine.js';
 
 const POINT_COLORS = { placed: 0x2f63e0, estimated: 0xd98a00 };
 const CURVE_COLOR = 0x0e9fc7;
@@ -238,7 +239,7 @@ export class SceneView {
         const node = this.model.get(id);
         if (node?.kind === 'curve') this._drawCurve(node);
         else if (node?.kind === 'region') this._drawRegion(node);
-        else if (node?.kind === 'sphere') this._drawFit(node);
+        else if (FIT_KINDS.has(node?.kind)) this._drawFit(node);
       }
     }
     if (kind === 'select' || kind === 'remove' || kind === 'add') this._showSelection();
@@ -262,22 +263,8 @@ export class SceneView {
       const handles = new THREE.Group();
       handles.name = 'handles';
       obj.add(line, handles);
-    } else if (node.kind === 'sphere') {
-      // An outline of the sphere (circles of latitude and longitude) and a
-      // mark at its centre, both drawn through the mesh: the sphere lies
-      // in or under the bone's surface, where it would otherwise be hidden.
-      obj = new THREE.Group();
-      obj.userData.fit = true;
-      const outline = new LineSegments2(
-        new LineSegmentsGeometry().setPositions(sphereOutline()),
-        new LineMaterial({ color: FIT_COLOR, linewidth: 1.5, worldUnits: false, transparent: true, opacity: 0.75, depthTest: false })
-      );
-      outline.name = 'outline';
-      outline.renderOrder = 4;
-      const centre = new THREE.Mesh(this.pointGeometry, new THREE.MeshBasicMaterial({ color: FIT_COLOR, depthTest: false }));
-      centre.name = 'centre';
-      centre.renderOrder = 5;
-      obj.add(outline, centre);
+    } else if (FIT_KINDS.has(node.kind)) {
+      obj = this._buildFit(node);
     } else if (node.kind === 'region') {
       const material = new THREE.MeshBasicMaterial({
         color: REGION_COLOR,
@@ -304,25 +291,75 @@ export class SceneView {
     this.objects.set(node.id, obj);
     if (node.kind === 'curve') this._drawCurve(node);
     if (node.kind === 'region') this._drawRegion(node);
-    if (node.kind === 'sphere') this._drawFit(node);
+    if (FIT_KINDS.has(node.kind)) this._drawFit(node);
   }
 
-  // Bring a fitted sphere's outline and centre mark up to date with its node.
+  // A fitted primitive: an outline (and, for a plane, a faint fill) and a
+  // mark at its centre, all drawn through the mesh, because a fitted shape
+  // lies in or under the bone's surface, where it would otherwise be hidden.
+  // The outline is made once for a unit shape and placed, turned and scaled
+  // to the fit: a unit sphere at the origin; a unit cylinder along Y from
+  // −0.5 to 0.5 with its axis; a square from −1 to 1 square to Z with its normal.
+  _buildFit(node) {
+    const obj = new THREE.Group();
+    obj.userData.fit = true;
+    const shape = { sphere: sphereOutline, cylinder: cylinderOutline, plane: planeOutline }[node.kind]();
+    const outline = new LineSegments2(
+      new LineSegmentsGeometry().setPositions(shape),
+      new LineMaterial({ color: FIT_COLOR, linewidth: 1.5, worldUnits: false, transparent: true, opacity: 0.75, depthTest: false })
+    );
+    outline.name = 'outline';
+    outline.renderOrder = 4;
+    if (node.kind === 'plane') {
+      const fill = new THREE.Mesh(
+        new THREE.PlaneGeometry(2, 2),
+        new THREE.MeshBasicMaterial({ color: FIT_COLOR, transparent: true, opacity: 0.12, side: THREE.DoubleSide, depthWrite: false, depthTest: false })
+      );
+      fill.name = 'fill';
+      fill.renderOrder = 3;
+      outline.add(fill);
+    }
+    const centre = new THREE.Mesh(this.pointGeometry, new THREE.MeshBasicMaterial({ color: FIT_COLOR, depthTest: false }));
+    centre.name = 'centre';
+    centre.renderOrder = 5;
+    obj.add(outline, centre);
+    return obj;
+  }
+
+  // Bring a fitted primitive's drawing up to date with its node.
   _drawFit(node) {
     const obj = this.objects.get(node.id);
     if (!obj) return;
-    const ok = !node.error && Array.isArray(node.centre);
+    const at = node.kind === 'sphere' ? node.centre : node.point;
+    const ok = !node.error && Array.isArray(at);
     obj.userData.empty = !ok;
     obj.visible = node.visible && ok;
     if (!ok) return;
     const outline = obj.getObjectByName('outline');
-    outline.position.fromArray(node.centre);
-    outline.scale.setScalar(node.radius);
-    obj.getObjectByName('centre').position.fromArray(node.centre);
+    const centre = obj.getObjectByName('centre');
+    if (node.kind === 'sphere') {
+      outline.position.fromArray(node.centre);
+      outline.quaternion.identity();
+      outline.scale.setScalar(node.radius);
+      centre.position.fromArray(node.centre);
+    } else if (node.kind === 'cylinder') {
+      const mid = node.ends[0].map((v, i) => (v + node.ends[1][i]) / 2);
+      outline.position.fromArray(mid);
+      outline.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...node.direction));
+      outline.scale.set(node.radius, Math.max(node.length, 1e-6), node.radius);
+      centre.position.fromArray(mid);
+    } else {
+      outline.position.fromArray(node.point);
+      outline.quaternion.setFromUnitVectors(new THREE.Vector3(0, 0, 1), new THREE.Vector3(...node.normal));
+      outline.scale.setScalar(Math.max(node.size * 1.1, 1e-6));
+      centre.position.fromArray(node.point);
+    }
     const on = node.id === this.model.selectedId;
-    outline.material.color.setHex(on ? SELECTED : FIT_COLOR);
+    const color = on ? SELECTED : FIT_COLOR;
+    outline.material.color.setHex(color);
     outline.material.linewidth = on ? 2.5 : 1.5;
-    obj.getObjectByName('centre').material.color.setHex(on ? SELECTED : FIT_COLOR);
+    centre.material.color.setHex(color);
+    outline.getObjectByName('fill')?.material.color.setHex(color);
     this._sizeMarkers();
   }
 
@@ -411,6 +448,11 @@ export class SceneView {
       outline.geometry.dispose();
       outline.material.dispose();
       obj.getObjectByName('centre').material.dispose();
+      const fill = outline.getObjectByName('fill');
+      if (fill) {
+        fill.geometry.dispose();
+        fill.material.dispose();
+      }
     }
   }
 
@@ -481,5 +523,36 @@ function sphereOutline(segments = 64) {
     const r = Math.cos((lat * Math.PI) / 180);
     circle((t) => [r * Math.cos(t), y, r * Math.sin(t)]);
   }
+  return new Float32Array(out);
+}
+
+// A unit cylinder along Y (radius 1, from −0.5 to 0.5) as line segments:
+// rings at both ends and in the middle, 8 lines along it, and its axis
+// running a little past the ends.
+function cylinderOutline(segments = 64) {
+  const out = [];
+  for (const y of [-0.5, 0, 0.5]) {
+    for (let k = 0; k < segments; k++) {
+      const a = (2 * Math.PI * k) / segments;
+      const b = (2 * Math.PI * (k + 1)) / segments;
+      out.push(Math.cos(a), y, Math.sin(a), Math.cos(b), y, Math.sin(b));
+    }
+  }
+  for (let m = 0; m < 8; m++) {
+    const a = (Math.PI * m) / 4;
+    out.push(Math.cos(a), -0.5, Math.sin(a), Math.cos(a), 0.5, Math.sin(a));
+  }
+  out.push(0, -0.65, 0, 0, 0.65, 0);
+  return new Float32Array(out);
+}
+
+// A square from −1 to 1 in the XY plane as line segments: its edges, a
+// cross through the middle, and the normal (+Z) as a short line from the centre.
+function planeOutline() {
+  const out = [];
+  const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]];
+  for (let k = 0; k < 4; k++) out.push(...corners[k], 0, ...corners[(k + 1) % 4], 0);
+  out.push(-1, 0, 0, 1, 0, 0, 0, -1, 0, 0, 1, 0);
+  out.push(0, 0, 0, 0, 0, 0.5);
   return new Float32Array(out);
 }
