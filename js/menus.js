@@ -6,6 +6,8 @@
 const ICONS = {
   point: '<circle cx="8" cy="8" r="2.6" fill="currentColor" stroke="none"/><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3"/>',
   line: '<path d="M2.5 13.5 13.5 2.5M9.5 2.5h4v4"/>',
+  frame: '<path d="M3 13V3M3 13h10M3 13l6-4"/>',
+  measure: '<path d="M1.5 10.5 10.5 1.5l4 4-9 9z"/><path d="M4.5 7.5l1.5 1.5M6.5 5.5l1.5 1.5M8.5 3.5l1.5 1.5"/>',
   region: '<path d="M3 6c1-3 6-4 9-2s2 7-1 8-9-2-8-6z"/>',
   sphere: '<circle cx="8" cy="8" r="6"/><ellipse cx="8" cy="8" rx="6" ry="2.2"/>',
   cylinder: '<ellipse cx="8" cy="3.5" rx="4.5" ry="1.8"/><path d="M3.5 3.5v9c0 1 2 1.8 4.5 1.8s4.5-.8 4.5-1.8v-9"/>',

@@ -3,11 +3,15 @@
 // show it, the arrow to fold it away.
 
 const SVG = (body) => `<svg viewBox="0 0 16 16" aria-hidden="true">${body}</svg>`;
+import { measureText } from './properties-panel.js';
+
 const ICONS = {
   mesh: '<path d="M8 1.5 14 5v6l-6 3.5L2 11V5z M2 5l6 3.5L14 5 M8 8.5v6"/>',
   group: '<path d="M1.5 4.5h4l1.5 1.5h7.5v7h-13z"/>',
   point: '<circle cx="8" cy="8" r="3" fill="currentColor" stroke="none"/>',
   line: '<path d="M2.5 13.5 13.5 2.5M9.5 2.5h4v4"/>',
+  frame: '<path d="M3 13V3M3 13h10M3 13l6-4"/>',
+  measure: '<path d="M1.5 10.5 10.5 1.5l4 4-9 9z"/><path d="M4.5 7.5l1.5 1.5M6.5 5.5l1.5 1.5M8.5 3.5l1.5 1.5"/>',
   curve: '<path d="M2 12c2-8 4-8 6-3s4 4 6-5"/>',
   region: '<path d="M3 6c1-3 6-4 9-2s2 7-1 8-9-2-8-6z"/>',
   sphere: '<circle cx="8" cy="8" r="6"/><ellipse cx="8" cy="8" rx="6" ry="2.2"/>',
@@ -42,7 +46,9 @@ export function setupTree(el, model) {
         ? `<span class="count">${kids.length}</span>`
         : node.error
           ? '<span class="count problem" title="There is a problem: see Properties">!</span>'
-          : '';
+          : node.kind === 'measure'
+            ? `<span class="count value">${measureText(node)}</span>`
+            : '';
     return `<li data-id="${node.id}">
       <div class="${classes.join(' ')}" style="--depth:${depth}" data-kind="${node.kind}"${node.status ? ` data-status="${node.status}"` : ''}>
         ${twist}

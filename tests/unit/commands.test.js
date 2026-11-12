@@ -25,6 +25,8 @@ describe('the list of commands', () => {
       ['plane', 'Plane', ['plane-fit', 'plane-curve']],
       ['point', 'Point', ['point-surface', 'point-centre', 'point-centroid', 'point-midpoint', 'point-line-plane']],
       ['line', 'Line', ['line-two-points', 'line-axis', 'line-curve', 'line-perpendicular', 'line-planes']],
+      ['frame', 'Axes', ['frame-directions', 'frame-points']],
+      ['measure', 'Measure', ['measure-points', 'measure-point-to', 'measure-lines', 'measure-angle', 'measure-corner', 'measure-on-plane', 'measure-coords']],
     ]);
     for (const m of MENUS) {
       for (const c of m.commands) {
@@ -202,13 +204,21 @@ describe('what can be made from the selected object', () => {
   test('a sphere: its centre, a midpoint, a line; a point: a midpoint, a line; a plane: lines', () => {
     const { runner, region, model, fits, constructs } = setup({ region: true });
     const sphere = fits.create(region.id, 'sphere');
-    assert.deepEqual(runner.available(sphere).map((c) => c.short), ['Centre point', 'Midpoint', 'Line to a point']);
+    const making = (node) => runner.available(node).filter((c) => c.kind === 'point' || c.kind === 'line');
+    // Alone, a sphere has only its centre to give: a midpoint or a line needs a second point.
+    assert.deepEqual(making(sphere).map((c) => c.short), ['Centre point']);
     const p = constructs.create('point', 'centre', [sphere.id]);
-    assert.deepEqual(ids(runner.available(p)), ['point-midpoint', 'line-two-points']);
+    assert.deepEqual(making(sphere).map((c) => c.short), ['Centre point', 'Midpoint', 'Line to a point']);
+    assert.deepEqual(ids(making(p)), ['point-midpoint', 'line-two-points']);
     const plane = fits.create(region.id, 'plane');
-    assert.deepEqual(ids(runner.available(plane)), ['line-perpendicular', 'line-planes']);
+    assert.deepEqual(ids(making(plane)), ['line-perpendicular'], 'one plane: no second plane to meet');
     const l = constructs.create('line', 'perpendicular', [plane.id, p.id]);
-    assert.deepEqual(ids(runner.available(l)), ['point-line-plane']);
+    assert.deepEqual(ids(making(l)), ['point-line-plane']);
+    // Axes and measurements start from points, lines and planes too.
+    // (Only what the scene can finish: two points, so no axes from three points; no axes yet, so no coordinates.)
+    assert.deepEqual(ids(runner.available(p).filter((c) => c.kind !== 'point' && c.kind !== 'line')), ['frame-directions', 'measure-points', 'measure-point-to', 'measure-corner']);
+    assert.deepEqual(ids(runner.available(l).filter((c) => c.kind === 'measure')), ['measure-angle'], 'one line: nothing to measure against another line');
+    assert.deepEqual(ids(runner.available(plane).filter((c) => c.kind === 'measure')), ['measure-angle']);
     // A landmark that is missing has nothing to offer.
     assert.deepEqual(runner.available(model.add('point', { position: null, status: 'missing' })), []);
   });
@@ -298,5 +308,47 @@ describe('points and lines from the menus', () => {
     model.select(a.id);
     runner.start('point-midpoint');
     assert.equal(runner.prefer([a.id, b.id]), b.id);
+  });
+});
+
+describe('measuring from the menus', () => {
+  test('distance from a point: to a plane or to a line, chosen by what is clicked second', () => {
+    const { runner, model, region, fits, constructs } = setup({ region: true });
+    const sphere = fits.create(region.id, 'sphere');
+    const plane = fits.create(region.id, 'plane');
+    const line = constructs.create('line', 'perpendicular', [plane.id, sphere.id]);
+    model.select(sphere.id);
+    runner.start('measure-point-to');
+    assert.equal(runner.offer(plane.id).node.method, 'point-plane');
+    model.select(sphere.id);
+    runner.start('measure-point-to');
+    const r = runner.offer(line.id);
+    assert.equal(r.node.method, 'point-line');
+    assert.equal(r.node.kind, 'measure');
+    assert.equal(r.node.name, 'Distance 2');
+  });
+
+  test('three inputs: the angle seen on a plane asks for two lines, then the plane', () => {
+    const { runner, model, region, fits, constructs, mesh } = setup({ region: true });
+    const sphere = fits.create(region.id, 'sphere');
+    const plane = fits.create(region.id, 'plane');
+    const a = constructs.create('line', 'perpendicular', [plane.id, sphere.id]);
+    const b = constructs.create('line', 'two-points', [sphere.id, constructs.placePoint({ id: mesh.id, position: [5, 5, 8], anchor: { face: 0 } }).id]);
+    model.select(a.id);
+    runner.start('measure-on-plane');
+    assert.match(runner.state().hint, /^Step 2 of 3 \(“Line 1” taken\)\. Click a line \(or a cylinder: its axis\)/);
+    runner.offer(b.id);
+    assert.match(runner.state().hint, /^Step 3 of 3 \(“Line 1”, “Line 2” taken\)\. Click the plane to see them on/);
+    const r = runner.offer(plane.id);
+    assert.equal(r.node.method, 'on-plane');
+    assert.equal(r.node.name, 'Angle 1');
+  });
+
+  test('coordinates need a coordinate system first', () => {
+    const { runner, model, region, fits } = setup({ region: true });
+    model.select(fits.create(region.id, 'sphere').id);
+    const r = runner.start('measure-coords');
+    assert.equal(r.status, 'nothing');
+    assert.match(r.message, /no coordinate system yet/);
   });
 });

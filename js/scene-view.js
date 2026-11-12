@@ -28,6 +28,9 @@ import { isConstructed } from './construction-engine.js';
 
 const POINT_COLORS = { placed: 0x2f63e0, estimated: 0xd98a00 };
 const MADE_COLOR = 0x7c3aed; // points and lines made from other objects
+const AXIS_COLORS = { x: 0xdc2626, y: 0x16a34a, z: 0x2563eb };
+const FRAME_SIZE = 0.1; // length of a coordinate system's axes, as a share of the scene's diagonal
+const MEASURE_COLOR = 0x0d9488;
 const CURVE_COLOR = 0x0e9fc7;
 const DERIVED = 0x9cc3d8; // a mesh made from a region
 const REGION_COLOR = 0x0e9fc7;
@@ -136,8 +139,9 @@ export class SceneView {
     return hit.object.name;
   }
 
-  // The line whose drawn stretch passes under a screen position (within a
-  // few pixels). Lines are drawn through the mesh, so nothing hides them.
+  // The line, measurement or coordinate system whose drawn strokes pass
+  // under a screen position (within a few pixels). They are drawn through
+  // the mesh, so nothing hides them.
   lineAt(clientX, clientY) {
     const rect = this.viewer.renderer.domElement.getBoundingClientRect();
     this.root.updateMatrixWorld(true);
@@ -147,17 +151,18 @@ export class SceneView {
     };
     let best = null;
     for (const [id, obj] of this.objects) {
-      if (!obj.userData.line || !obj.visible || !this.model.isShown(id)) continue;
-      const node = this.model.get(id);
-      if (!node.ends) continue;
-      const [a, b] = node.ends.map((p) => toScreen(p, obj));
-      if (a[2] > 1 || b[2] > 1) continue;
-      const dx = b[0] - a[0];
-      const dy = b[1] - a[1];
-      const len2 = dx * dx + dy * dy;
-      const u = len2 > 0 ? Math.min(1, Math.max(0, ((clientX - a[0]) * dx + (clientY - a[1]) * dy) / len2)) : 0;
-      const d = Math.hypot(clientX - (a[0] + u * dx), clientY - (a[1] + u * dy));
-      if (d <= CURVE_REACH && (!best || d < best.d)) best = { id, d };
+      const strokes = obj.userData.strokes;
+      if (!strokes || !obj.visible || !this.model.isShown(id)) continue;
+      for (const stroke of strokes) {
+        const [a, b] = stroke.map((p) => toScreen(p, obj));
+        if (a[2] > 1 || b[2] > 1) continue;
+        const dx = b[0] - a[0];
+        const dy = b[1] - a[1];
+        const len2 = dx * dx + dy * dy;
+        const u = len2 > 0 ? Math.min(1, Math.max(0, ((clientX - a[0]) * dx + (clientY - a[1]) * dy) / len2)) : 0;
+        const d = Math.hypot(clientX - (a[0] + u * dx), clientY - (a[1] + u * dy));
+        if (d <= CURVE_REACH && (!best || d < best.d)) best = { id, d };
+      }
     }
     return best ? best.id : null;
   }
@@ -281,6 +286,8 @@ export class SceneView {
         else if (node?.kind === 'region') this._drawRegion(node);
         else if (FIT_KINDS.has(node?.kind)) this._drawFit(node);
         else if (node?.kind === 'line') this._drawLine(node);
+        else if (node?.kind === 'frame') this._drawFrame(node);
+        else if (node?.kind === 'measure') this._drawMeasure(node);
         else if (node?.kind === 'point') this._drawPoint(node);
       }
     }
@@ -304,6 +311,10 @@ export class SceneView {
       obj.userData.color = color;
     } else if (node.kind === 'line') {
       obj = this._buildLine();
+    } else if (node.kind === 'frame') {
+      obj = this._buildFrame();
+    } else if (node.kind === 'measure') {
+      obj = this._buildMeasure();
     } else if (node.kind === 'curve') {
       obj = new THREE.Group();
       obj.userData.curve = true;
@@ -343,7 +354,79 @@ export class SceneView {
     if (node.kind === 'region') this._drawRegion(node);
     if (FIT_KINDS.has(node.kind)) this._drawFit(node);
     if (node.kind === 'line') this._drawLine(node);
+    if (node.kind === 'frame') this._drawFrame(node);
+    if (node.kind === 'measure') this._drawMeasure(node);
     if (obj.userData.marker) this._drawPoint(node);
+  }
+
+  // A coordinate system: its X, Y and Z axes as red, green and blue arrows
+  // from the origin, as long as a share of the scene.
+  _buildFrame() {
+    const obj = new THREE.Group();
+    obj.userData.frame = true;
+    for (const axis of ['x', 'y', 'z']) {
+      const stroke = new LineSegments2(
+        new LineSegmentsGeometry().setPositions([0, 0, 0, 0, 1, 0]),
+        new LineMaterial({ color: AXIS_COLORS[axis], linewidth: 2.5, worldUnits: false, depthTest: false })
+      );
+      stroke.name = axis;
+      stroke.renderOrder = 4;
+      const head = new THREE.Mesh(this.arrowGeometry, new THREE.MeshBasicMaterial({ color: AXIS_COLORS[axis], depthTest: false }));
+      head.name = `${axis}-head`;
+      head.renderOrder = 5;
+      obj.add(stroke, head);
+    }
+    return obj;
+  }
+
+  _drawFrame(node) {
+    const obj = this.objects.get(node.id);
+    if (!obj) return;
+    const ok = !node.error && Array.isArray(node.origin);
+    obj.userData.empty = !ok;
+    obj.visible = node.visible && ok;
+    if (!ok) return;
+    const on = node.id === this.model.selectedId;
+    const length = this.viewer.diagonal * FRAME_SIZE * (on ? 1.3 : 1);
+    obj.userData.strokes = [];
+    for (const axis of ['x', 'y', 'z']) {
+      const tip = node.origin.map((v, i) => v + length * node[axis][i]);
+      obj.userData.strokes.push([node.origin, tip]);
+      const stroke = obj.getObjectByName(axis);
+      stroke.geometry.dispose();
+      stroke.geometry = new LineSegmentsGeometry().setPositions([...node.origin, ...tip]);
+      stroke.material.linewidth = on ? 3.5 : 2.5;
+      const head = obj.getObjectByName(`${axis}-head`);
+      head.position.fromArray(tip);
+      head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...node[axis]));
+      head.scale.setScalar(this.viewer.diagonal * MARKER_SIZE * (on ? 1.8 : 1.4));
+    }
+  }
+
+  // A measurement: what it measures between, as thin lines (a distance, the arms of an angle).
+  _buildMeasure() {
+    const obj = new LineSegments2(
+      new LineSegmentsGeometry().setPositions([0, 0, 0, 0, 0, 0]),
+      new LineMaterial({ color: MEASURE_COLOR, linewidth: 1.5, worldUnits: false, depthTest: false, transparent: true, opacity: 0.9 })
+    );
+    obj.userData.measure = true;
+    obj.renderOrder = 4;
+    return obj;
+  }
+
+  _drawMeasure(node) {
+    const obj = this.objects.get(node.id);
+    if (!obj) return;
+    const segments = !node.error && Array.isArray(node.segments) ? node.segments : [];
+    obj.userData.empty = segments.length === 0;
+    obj.visible = node.visible && segments.length > 0;
+    obj.userData.strokes = segments;
+    if (!segments.length) return;
+    obj.geometry.dispose();
+    obj.geometry = new LineSegmentsGeometry().setPositions(segments.flatMap(([a, b]) => [...a, ...b]));
+    const on = node.id === this.model.selectedId;
+    obj.material.color.setHex(on ? SELECTED : MEASURE_COLOR);
+    obj.material.linewidth = on ? 2.5 : 1.5;
   }
 
   // A point's marker at its position; hidden while it has none (a made
@@ -382,6 +465,7 @@ export class SceneView {
     obj.visible = node.visible && ok;
     if (!ok) return;
     const [a, b] = node.ends;
+    obj.userData.strokes = [node.ends];
     const stroke = obj.getObjectByName('stroke');
     stroke.geometry.dispose();
     stroke.geometry = new LineSegmentsGeometry().setPositions([...a, ...b]);
@@ -542,6 +626,15 @@ export class SceneView {
       const line = obj.getObjectByName('line');
       line.geometry.dispose();
       line.material.dispose();
+    } else if (obj.userData.frame) {
+      for (const child of obj.children) {
+        if (child.isMesh && child.geometry !== this.arrowGeometry) child.geometry.dispose();
+        if (!child.isMesh) child.geometry.dispose();
+        child.material.dispose();
+      }
+    } else if (obj.userData.measure) {
+      obj.geometry.dispose();
+      obj.material.dispose();
     } else if (obj.userData.line) {
       const stroke = obj.getObjectByName('stroke');
       stroke.geometry.dispose();
@@ -566,6 +659,8 @@ export class SceneView {
   _refreshBox() {
     this.viewer.setContentBox(this.contentBox());
     this._sizeMarkers();
+    // Axes are as long as a share of the scene.
+    for (const [id, obj] of this.objects) if (obj.userData.frame) this._drawFrame(this.model.get(id));
   }
 
   // Markers keep a size that suits the scene, and the selected one is larger.
@@ -595,6 +690,8 @@ export class SceneView {
       if (obj.userData.region) this._drawRegion(this.model.get(id));
       if (obj.userData.fit) this._drawFit(this.model.get(id));
       if (obj.userData.line) this._drawLine(this.model.get(id));
+      if (obj.userData.frame) this._drawFrame(this.model.get(id));
+      if (obj.userData.measure) this._drawMeasure(this.model.get(id));
       const surface = obj.getObjectByName('surface');
       if (surface) surface.material.emissive.setHex(on ? MESH_GLOW : 0x000000);
     }

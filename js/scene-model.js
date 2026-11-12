@@ -14,6 +14,11 @@
 //   kind 'line'    a line made from other objects: method, inputs, flipped;
 //                  computed point, direction, ends, length (see
 //                  construction-engine.js).
+//   kind 'frame'   a coordinate system (named "Axes 1"…): method, inputs,
+//                  primary and secondary (which axes the two directions
+//                  give); computed origin, x, y, z.
+//   kind 'measure' a distance, an angle or a point's coordinates: method,
+//                  inputs; computed value and the rest (construction-engine.js).
 //   kind 'curve'   a curve drawn on a mesh. What was clicked: control_points
 //                  [{ position, anchor }], closed, path ('geodesic' or
 //                  'euclidean'), as in a landmark file's curve. What was
@@ -40,8 +45,8 @@
 // template, when the app gets one, will say which objects to create, and
 // this is the link from an object back to the template step it fulfils.
 
-const PREFIX = { mesh: 'm', group: 'g', point: 'p', line: 'l', curve: 'c', region: 'r', sphere: 's', plane: 'f', cylinder: 'y' };
-const LABEL = { mesh: 'Mesh', group: 'Group', point: 'Point', line: 'Line', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
+const PREFIX = { mesh: 'm', group: 'g', point: 'p', line: 'l', frame: 'k', measure: 'd', curve: 'c', region: 'r', sphere: 's', plane: 'f', cylinder: 'y' };
+const LABEL = { mesh: 'Mesh', group: 'Group', point: 'Point', line: 'Line', frame: 'Axes', measure: 'Measurement', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
 
 export class SceneModel extends EventTarget {
   constructor() {

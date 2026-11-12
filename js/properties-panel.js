@@ -16,7 +16,7 @@ const dir = (n) => Number(n).toFixed(4);
 // Below this cap angle (degrees) a fitted sphere's size is poorly fixed.
 const SHALLOW_CAP = 30;
 
-const KIND = { mesh: 'Mesh', group: 'Landmark file', point: 'Point', line: 'Line', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
+const KIND = { mesh: 'Mesh', group: 'Landmark file', point: 'Point', line: 'Line', frame: 'Coordinate system', measure: 'Measurement', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
 
 // Why curves give no region, for the person looking at it.
 const REGION_PROBLEMS = {
@@ -79,6 +79,10 @@ export function describe(model, id) {
     copy = describeMade(model, node, rows, space);
   } else if (node.kind === 'line') {
     copy = describeMade(model, node, rows, space);
+  } else if (node.kind === 'frame') {
+    copy = describeFrame(model, node, rows, space);
+  } else if (node.kind === 'measure') {
+    copy = describeMeasure(model, node, rows, space);
   } else if (node.kind === 'point') {
     if (node.code) rows.push(['ID', node.code, true]);
     if (node.status) rows.push(['Status', node.status]);
@@ -218,7 +222,17 @@ function describeFit(model, node, rows, space) {
 function madeAs(model, node) {
   const name = (i) => {
     const n = model.get(node.inputs?.[i]);
-    return n ? (n.kind === 'sphere' && node.method !== 'centre' ? `${n.name} (its centre)` : n.name) : '?';
+    if (!n) return '?';
+    if (n.kind === 'sphere' && node.method !== 'centre') return `${n.name} (its centre)`;
+    if (n.kind === 'cylinder' && node.method !== 'axis') return `${n.name} (its axis)`;
+    if (n.kind === 'plane' && node.method === 'point-directions') return `${n.name} (its normal)`;
+    return n.name;
+  };
+  const P = (node.primary ?? 'x').toUpperCase();
+  const S = (node.secondary ?? 'y').toUpperCase();
+  const seenOn = () => {
+    const n = model.get(node.inputs?.[2]);
+    return n && n.kind !== 'plane' ? `the plane square to ${n.name}` : name(2);
   };
   switch (node.method) {
     case 'surface': return `Clicked on ${model.get(node.parent)?.name ?? 'a mesh'}`;
@@ -231,6 +245,16 @@ function madeAs(model, node) {
     case 'fit-curve': return `Fitted to ${name(0)} (its path)`;
     case 'perpendicular': return `Perpendicular to ${name(0)}, through ${name(1)}`;
     case 'planes': return `Where ${name(0)} and ${name(1)} meet`;
+    case 'point-directions': return `Origin at ${name(0)}; ${P} along ${name(1)}, ${S} towards ${name(2)}`;
+    case 'three-points': return `Origin at ${name(0)}; ${P} towards ${name(1)}, ${S} towards ${name(2)}`;
+    case 'points':
+    case 'point-line':
+    case 'point-plane': return `From ${name(0)} to ${name(1)}`;
+    case 'lines':
+    case 'angle': return `Between ${name(0)} and ${name(1)}`;
+    case 'corner': return `At ${name(0)}, between ${name(1)} and ${name(2)}`;
+    case 'on-plane': return `From ${name(0)} to ${name(1)}, seen on ${seenOn()}`;
+    case 'coords': return `${name(0)} in ${name(1)}`;
     default: return '?';
   }
 }
@@ -284,6 +308,98 @@ function describeMade(model, node, rows, space) {
   ].join('\n');
 }
 
+// Why a coordinate system or a measurement has no result.
+function madeProblem(model, node) {
+  const failing = node.inputs?.map((id) => model.get(id)).find((n) => n && (n.error || n.drawing || (n.kind === 'point' && !n.position)));
+  return {
+    'no-input': 'What it was made from is gone.',
+    input: `“${failing?.name ?? 'What it was made from'}” has no result at the moment, so neither does this.`,
+    parallel: 'The two directions lie along one line, so they don\'t fix a coordinate system. Choose a second direction across the first.',
+    axes: 'The first and the second direction must give different axes.',
+    same: 'Two of the points are in the same place.',
+    square: 'One of the lines is square to the plane, so seen on the plane it is only a point.',
+  }[node.error] ?? 'It could not be worked out.';
+}
+
+const deg = (v) => `${Number(v).toFixed(2)}°`;
+
+// A measurement's value in a few characters, for the Objects list.
+export function measureText(node) {
+  if (node.error || (node.value === null && !node.values)) return '';
+  if (node.unit === 'degrees') return deg(node.value);
+  if (node.unit === 'coordinates') return '';
+  return num(node.value);
+}
+
+function describeFrame(model, node, rows, space) {
+  rows.push(['Made as', madeAs(model, node)]);
+  if (node.error) {
+    rows.push(['Problem', madeProblem(model, node)]);
+    return null;
+  }
+  const xyz = (label, v, f) => ['x', 'y', 'z'].forEach((axis, i) => rows.push([`${label} ${axis}`, f(v[i]), true]));
+  xyz('Origin', node.origin, num);
+  xyz('X axis', node.x, dir);
+  xyz('Y axis', node.y, dir);
+  xyz('Z axis', node.z, dir);
+  rows.push(['Coordinates', space]);
+  return [
+    'name\tmade_as\torigin_x\torigin_y\torigin_z\tx_axis_x\tx_axis_y\tx_axis_z\ty_axis_x\ty_axis_y\ty_axis_z\tz_axis_x\tz_axis_y\tz_axis_z',
+    [node.name, madeAs(model, node), ...node.origin, ...node.x, ...node.y, ...node.z].join('\t'),
+  ].join('\n');
+}
+
+function describeMeasure(model, node, rows, space) {
+  const how = madeAs(model, node);
+  rows.push(['Measures', how]);
+  if (node.error) {
+    rows.push(['Problem', madeProblem(model, node)]);
+    return null;
+  }
+  if (node.unit === 'coordinates') {
+    const frame = model.get(node.inputs[1]);
+    rows.push(['In', frame?.name ?? '?']);
+    ['x', 'y', 'z'].forEach((axis, i) => rows.push([axis, num(node.values[i]), true]));
+    return [
+      'name\tpoint\taxes\tx\ty\tz',
+      [node.name, model.get(node.inputs[0])?.name ?? '', frame?.name ?? '', ...node.values].join('\t'),
+    ].join('\n');
+  }
+  const extra = [];
+  if (node.unit === 'length') {
+    rows.push(['Distance', num(node.value), true]);
+    if (node.method === 'points') {
+      ['x', 'y', 'z'].forEach((axis, i) => rows.push([`Along ${axis}`, num(node.delta[i]), true]));
+      extra.push(['dx', node.delta[0]], ['dy', node.delta[1]], ['dz', node.delta[2]]);
+    }
+    if (node.method === 'point-plane') {
+      rows.push(['Signed distance', num(node.signed), true]);
+      rows.push(['Side', node.signed >= 0 ? 'the side the plane\'s normal points to' : 'the side away from the normal']);
+      extra.push(['signed', node.signed]);
+    }
+    if (node.method === 'lines' && node.parallel) rows.push(['Note', 'The lines are parallel: this is the distance between them anywhere along them.']);
+    rows.push(['Coordinates', space]);
+  } else {
+    rows.push(['Angle', deg(node.value), true]);
+    if (node.method === 'angle' && node.between !== 'line-plane') {
+      rows.push(['Smaller angle', deg(node.acute), true]);
+      rows.push(['Note', node.between === 'lines' ? 'The angle is between the lines\' directions (0–180°); flip a line to measure the other way round.' : 'The angle is between the planes\' normals (0–180°).']);
+      extra.push(['smaller_angle', node.acute]);
+    }
+    if (node.between === 'line-plane') {
+      rows.push(['Note', 'Positive when the line points to the side the plane\'s normal points to (−90° to 90°).']);
+    }
+    if (node.method === 'on-plane') {
+      rows.push(['Note', 'Looking at the plane against its normal, turning anticlockwise from the first line to the second is positive (−180° to 180°).']);
+    }
+  }
+  const unit = node.unit === 'degrees' ? 'degrees' : 'length';
+  return [
+    ['name', 'measures', 'value', 'unit', ...extra.map(([k]) => k)].join('\t'),
+    [node.name, how, node.value, unit, ...extra.map(([, v]) => v)].join('\t'),
+  ].join('\n');
+}
+
 // Full precision goes on the clipboard; the panel shows three decimals.
 function pointLine(p) {
   const xyz = p.position ? p.position.join('\t') : 'NA\tNA\tNA';
@@ -310,15 +426,31 @@ export function setupProperties(el, { model, copyText, app }) {
         </label>`
       : '';
     // What can be made from this object: the commands it suits (commands.js), and a mesh from a region.
-    const make = (app.commands?.available(node) ?? []).map(
-      (c) => `<button type="button" class="btn small" data-make="${c.id}" title="${esc(c.title)}">${esc(c.short)}</button>`
-    );
+    // Measurements get a row of their own.
+    const offered = app.commands?.available(node) ?? [];
+    const button = (c) => `<button type="button" class="btn small" data-make="${c.id}" title="${esc(c.title)}">${esc(c.short)}</button>`;
+    const make = offered.filter((c) => c.kind !== 'measure').map(button);
+    const measures = offered.filter((c) => c.kind === 'measure').map(button);
     if (node.kind === 'region' && !node.error) {
       make.push('<button type="button" class="btn small" id="prop-extract" title="Make a new mesh of just this region. The original mesh stays as it is.">New mesh</button>');
     }
-    const makeRow = make.length
-      ? `<div class="props-make" id="prop-make"><span class="props-make-label">Make from this</span><div class="props-actions">${make.join('')}</div></div>`
-      : '';
+    const makeRow =
+      (make.length
+        ? `<div class="props-make" id="prop-make"><span class="props-make-label">Make from this</span><div class="props-actions">${make.join('')}</div></div>`
+        : '') +
+      (measures.length
+        ? `<div class="props-make" id="prop-measure"><span class="props-make-label">Measure from this</span><div class="props-actions">${measures.join('')}</div></div>`
+        : '');
+    // Which axes a coordinate system's two directions give.
+    const axisSelect = (id, value) =>
+      `<select id="${id}">${['x', 'y', 'z'].map((a) => `<option value="${a}"${a === value ? ' selected' : ''}>${a.toUpperCase()}</option>`).join('')}</select>`;
+    const axesRow =
+      node.kind === 'frame'
+        ? `<div class="props-axes">
+            <label for="prop-primary">The first direction gives</label>${axisSelect('prop-primary', node.primary)}
+            <label for="prop-secondary">The second gives</label>${axisSelect('prop-secondary', node.secondary)}
+          </div>`
+        : '';
     el.innerHTML = `
       <div class="props-head">
         <input type="text" id="prop-name" aria-label="Name" value="${esc(d.title)}">
@@ -327,6 +459,7 @@ export function setupProperties(el, { model, copyText, app }) {
       <dl class="props-list">
         ${d.rows.map(([k, v, mono]) => (k === 'Problem' ? `<dd class="problem" style="grid-column: 1 / -1">${esc(v)}</dd>` : `<dt>${esc(k)}</dt><dd${mono ? ' class="mono"' : ''}>${esc(v)}</dd>`)).join('')}
       </dl>
+      ${axesRow}
       ${makeRow}
       <div class="props-actions">
         ${d.copy ? '<button type="button" class="btn small" id="prop-copy">Copy numbers</button>' : ''}
@@ -341,6 +474,16 @@ export function setupProperties(el, { model, copyText, app }) {
   }
 
   el.addEventListener('change', (e) => {
+    if (e.target.id === 'prop-primary' || e.target.id === 'prop-secondary') {
+      // Choosing the axis the other direction gives swaps the two.
+      const node = model.selected;
+      const key = e.target.id === 'prop-primary' ? 'primary' : 'secondary';
+      const other = key === 'primary' ? 'secondary' : 'primary';
+      const fields = { [key]: e.target.value };
+      if (node[other] === e.target.value) fields[other] = node[key];
+      app.constructs.set(node.id, fields);
+      return;
+    }
     if (e.target.id === 'prop-add-boundary' && e.target.value) {
       app.regions.addBoundary(model.selectedId, e.target.value);
       return;

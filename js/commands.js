@@ -51,6 +51,33 @@ export const INPUTS = {
   cylinder: { ask: 'a cylinder', accepts: made('cylinder'), none: 'There is no cylinder yet. Fit one with Cylinder ▸ Fit to a region.' },
   plane: { ask: 'a plane', accepts: made('plane'), none: 'There is no plane yet. Fit one from the Plane menu.' },
   line: { ask: 'a line', accepts: made('line'), none: 'There is no line yet. Make one from the Line menu.' },
+  // A line, or a cylinder standing for its axis.
+  lineLike: {
+    ask: 'a line (or a cylinder: its axis)',
+    accepts: (ctx, node) => (node.kind === 'cylinder' ? made('cylinder') : made('line'))(ctx, node),
+    none: 'There is no line yet. Make one from the Line menu, or fit a cylinder.',
+  },
+  lineOrPlane: {
+    ask: 'a line or a plane (or a cylinder: its axis)',
+    accepts: (ctx, node) => (['line', 'plane', 'cylinder'].includes(node.kind) ? made(node.kind)(ctx, node) : false),
+    none: 'There is no line or plane yet. Make one from the Line or Plane menu.',
+  },
+  direction: {
+    ask: 'a direction: a line, a plane (its normal) or a cylinder (its axis)',
+    accepts: (ctx, node) => (['line', 'plane', 'cylinder'].includes(node.kind) ? made(node.kind)(ctx, node) : false),
+    none: 'There is no line or plane yet to give a direction. Make one from the Line or Plane menu.',
+  },
+  reference: {
+    ask: 'the plane to see them on: a plane, or a line (the plane square to it)',
+    accepts: (ctx, node) => (['line', 'plane', 'cylinder'].includes(node.kind) ? made(node.kind)(ctx, node) : false),
+    none: 'There is no plane or line yet to see the angle on.',
+  },
+  corner: {
+    ask: 'the corner: a point or a sphere (its centre)',
+    accepts: (ctx, node) => INPUTS.point.accepts(ctx, node),
+    none: 'There is no point yet. Place one with Point ▸ Click on a surface, or fit a sphere.',
+  },
+  frame: { ask: 'a coordinate system (Axes)', accepts: made('frame'), none: 'There is no coordinate system yet. Make one from the Axes menu.' },
   // What has a centroid.
   centroid: {
     ask: 'a region or a curve',
@@ -113,6 +140,22 @@ const point = (id, label, title, inputs, method, short) => ({
   short,
   run: (ctx, nodes) => ctx.constructs.create('point', method, nodes.map((n) => n.id)),
 });
+const measure = (id, label, title, inputs, method, short) => ({
+  id,
+  label,
+  title,
+  inputs,
+  short,
+  run: (ctx, nodes) => ctx.constructs.create('measure', typeof method === 'function' ? method(nodes) : method, nodes.map((n) => n.id)),
+});
+const frame = (id, label, title, inputs, method, short) => ({
+  id,
+  label,
+  title,
+  inputs,
+  short,
+  run: (ctx, nodes) => ctx.constructs.create('frame', method, nodes.map((n) => n.id)),
+});
 const line = (id, label, title, inputs, method, short) => ({
   id,
   label,
@@ -172,6 +215,27 @@ export const MENUS = [
       line('line-curve', 'Fit to a curve', 'The straight line nearest the path of a curve', ['curve'], 'fit-curve', 'Line'),
       line('line-perpendicular', 'Perpendicular to a plane', 'A line square to a plane, through a point', ['plane', 'point'], 'perpendicular', 'Perpendicular line'),
       line('line-planes', 'Where two planes meet', 'The line along which two planes cross', ['plane', 'plane'], 'planes', 'Line where it meets a plane'),
+    ],
+  },
+  {
+    kind: 'frame',
+    label: 'Axes',
+    commands: [
+      frame('frame-directions', 'From an origin and two directions', 'A coordinate system: its origin at a point, one axis along a line or a plane\'s normal, a second squared up to another', ['point', 'direction', 'direction'], 'point-directions', 'Axes with origin here'),
+      frame('frame-points', 'From three points', 'A coordinate system: its origin at the first point, one axis towards the second, a second axis leaning towards the third', ['point', 'point', 'point'], 'three-points', 'Axes from three points'),
+    ],
+  },
+  {
+    kind: 'measure',
+    label: 'Measure',
+    commands: [
+      measure('measure-points', 'Distance between two points', 'The distance between two points (a sphere counts as its centre)', ['point', 'point'], 'points', 'Distance to a point'),
+      measure('measure-point-to', 'Distance from a point to a line or plane', 'The shortest distance from a point to a line or a plane', ['point', 'lineOrPlane'], (n) => (n[1].kind === 'plane' ? 'point-plane' : 'point-line'), 'Distance to a line or plane'),
+      measure('measure-lines', 'Distance between two lines', 'The shortest distance between two lines', ['lineLike', 'lineLike'], 'lines', 'Distance to a line'),
+      measure('measure-angle', 'Angle between lines or planes', 'The angle between two lines, a line and a plane, or two planes', ['lineOrPlane', 'lineOrPlane'], 'angle', 'Angle'),
+      measure('measure-corner', 'Angle at a point, between two others', 'The angle at a corner point between the directions to two other points', ['corner', 'point', 'point'], 'corner', 'Angle at this point'),
+      measure('measure-on-plane', 'Angle between two lines, seen on a plane', 'Two lines as seen on a plane (or on the plane square to a line): torsion and version angles', ['lineLike', 'lineLike', 'reference'], 'on-plane', 'Angle seen on a plane'),
+      measure('measure-coords', 'Coordinates of a point in a coordinate system', 'Where a point is in a coordinate system (Axes)', ['point', 'frame'], 'coords', 'Coordinates in axes'),
     ],
   },
 ];

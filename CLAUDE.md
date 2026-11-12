@@ -2,7 +2,7 @@
 
 Browser app for fitting geometric primitives (lines, planes, spheres, cylinders) to STL/PLY meshes of bones, to quantify structures such as epiphyses and joint surfaces. Sister app of Landmarker3D and landmarker2D: same stack, same look, opened from GitHub Pages, nothing installed, no data leaves the computer. The owner is a morphometrician, not a web developer: explain changes in plain terms.
 
-**State (v0.10):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose), and regions can also be selected on the screen with Lasso or Box; spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path; points can be placed on a mesh or made from other objects (a sphere's centre, a centroid, a midpoint, a line meeting a plane), and lines made from them (through two points, a cylinder's axis, fitted to a curve, perpendicular to a plane, two planes meeting); a region can be made into a mesh of its own; every mesh shows its surface area and can be saved as STL or PLY. Things are made from menus (one per kind of object) or from the selected object's Properties; mouse tools sit on a rail beside the 3D view. Coordinate systems, measuring, moving meshes and saving are not built yet.
+**State (v0.11):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose), and regions can also be selected on the screen with Lasso or Box; spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path; points can be placed on a mesh or made from other objects (a sphere's centre, a centroid, a midpoint, a line meeting a plane), and lines made from them (through two points, a cylinder's axis, fitted to a curve, perpendicular to a plane, two planes meeting); coordinate systems (from an origin and two directions, or three points) and measurements (distances, angles, angles seen on a plane, a point's coordinates in a coordinate system) are objects that follow what they were made from; a region can be made into a mesh of its own; every mesh shows its surface area and can be saved as STL or PLY. Things are made from menus (one per kind of object) or from the selected object's Properties; mouse tools sit on a rail beside the 3D view. Moving meshes and saving are not built yet.
 
 ## Ground rules (do not break these)
 
@@ -22,8 +22,8 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `index.html` | Page, styles (colour tokens, light and dark), import map |
 | `js/main.js` | Wiring: viewer, panels, menus, tool rail, the strips of the tool or command in use, keyboard, drag and drop, messages |
 | `js/interaction.js` | Mouse and touch in the 3D view: click to select (or to the tool in use, or the object a command asks for), dragging a curve's handle, drawing a lasso or box outline |
-| `js/scene-model.js` | The object tree: nodes (`mesh`, `group`, `point`, `line`, `curve`, `region`, `sphere`, `cylinder`, `plane`), attaching, hiding, removing, updating, selecting. No three.js |
-| `js/scene-view.js` | Draws the tree: one three.js object per node, nested as in the tree; markers, curve lines and handles, region tints, fitted primitives (outline, a faint fill for planes, and a centre mark, all drawn through the mesh); what is under the cursor (`pointAt`, `fitAt`, `curveAt`, `handleAt`, `regionAt`); made points and lines (drawn through the mesh, a line with an arrowhead); `lineAt`; the box the camera frames |
+| `js/scene-model.js` | The object tree: nodes (`mesh`, `group`, `point`, `line`, `frame`, `measure`, `curve`, `region`, `sphere`, `cylinder`, `plane`), attaching, hiding, removing, updating, selecting. No three.js |
+| `js/scene-view.js` | Draws the tree: one three.js object per node, nested as in the tree; markers, curve lines and handles, region tints, fitted primitives (outline, a faint fill for planes, and a centre mark, all drawn through the mesh); what is under the cursor (`pointAt`, `fitAt`, `curveAt`, `handleAt`, `regionAt`); made points and lines (drawn through the mesh, a line with an arrowhead), coordinate systems (RGB arrows), measurements (thin teal lines); `lineAt` (anything with `userData.strokes`); the box the camera frames |
 | `js/viewer.js` | three.js scene, camera, lights, framing; `displayGeometry` (the drawn copy of a mesh) |
 | `js/picking.js` | BVH raycasting over several meshes; hits in the mesh file's coordinates wherever the mesh is |
 | `js/mesh-loader.js` | STL/PLY reading, raw counts, SHA-256, triangle-only checks |
@@ -44,7 +44,8 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `js/select-tool.js` | The Lasso and Box tools as a state machine (`setMode`, `setThrough`, `apply(shape, 'new' / 'add' / 'remove')`); no mouse, so it is unit-tested |
 | `js/curve-tool.js` | The Curve tool as a state machine (`click`, `finish`, `close`, `undo`, `cancel`); no page or mouse, so it is unit-tested |
 | `js/construct.js` | Maths for made points and lines: midpoint, line through two points, line fitted to a path, perpendicular to a plane, two planes meeting, a line meeting a plane. No three.js |
-| `js/construction-engine.js` | Made points and lines as tree objects (`method`, `inputs`, `flipped`), made again when an input changes, removed with it; points placed on a mesh (`placePoint`). A sphere stands for its centre (`positionOf`) |
+| `js/measure.js` | Maths of measuring (distances, angles, angle seen on a plane) and of coordinate systems (`makeFrame`, `inFrame`). No three.js |
+| `js/construction-engine.js` | Made points, lines, coordinate systems and measurements as tree objects (`method`, `inputs`; `flipped` for lines, `primary`/`secondary` for frames), made again when an input changes, removed with it; points placed on a mesh (`placePoint`). `shapeOf` turns any input into plain geometry: a sphere stands for its centre, a cylinder for its axis |
 | `js/point-tool.js` | The Point tool: a click on a mesh places a point, a click on a point selects it; no mouse, so it is unit-tested |
 | `js/commands.js` | The ways to make each kind of object (`MENUS`, `COMMANDS`): what each needs (`inputs`, from `INPUTS`) and how it is made (`run`). No page |
 | `js/command-runner.js` | Runs a command: takes the selected object when it suits, otherwise asks for each input in turn (`start`, `offer`, `prefer`, `cancel`, `available(node)`); no page or mouse, so it is unit-tested |
@@ -59,9 +60,9 @@ A region node holds what it was made from (`boundary`: curve ids, `flipped`) and
 
 A fitted node (`sphere`, `cylinder`, `plane`) holds what it was made from (`source`: a region's id, or a curve's for a plane; `method`; `flipped` for planes and cylinders) and what was computed (see the top of `fit-engine.js`; every kind has `rms`, `maxDeviation`, `error`), in the mesh file's coordinates. Change it only through `FitEngine` (`create(sourceId, kind)`, `set`, `refresh`). A failed fit clears every computed field (`EMPTY` in `fit-engine.js`), because `SceneModel.update` merges. The fit engine reacts to a region's or curve's `update`, so a moved curve point flows curve → region → fit in one go.
 
-A made point or line holds `method` and `inputs` (ids, in order) and, for lines, `flipped`; what is computed is listed at the top of `construction-engine.js`. Change it only through `ConstructionEngine` (`create(kind, method, inputs)`, `set`, `refresh`). It reacts to any input's `update`, so chains (sphere → its centre → a line through it → where that meets a plane) follow in one go. It hangs under the mesh all its inputs share, or at the top level when they come from different meshes.
+A made point, line, coordinate system (`frame`) or measurement (`measure`) holds `method` and `inputs` (ids, in order) and, for lines, `flipped`, for frames `primary` and `secondary`; what is computed is listed at the top of `construction-engine.js`. Change it only through `ConstructionEngine` (`create(kind, method, inputs)`, `set`, `refresh`). It reacts to any input's `update`, so chains (sphere → its centre → a line through it → where that meets a plane) follow in one go. It hangs under the mesh all its inputs share, or at the top level when they come from different meshes.
 
-This is the pattern for everything that depends on something else (curve → region → fitted primitive → point → line): the dependent stores the ids it was made from, an engine recomputes it when those change, and the computed fields are never edited directly.
+This is the pattern for everything that depends on something else (curve → region → fitted primitive → point → line → measurement): the dependent stores the ids it was made from, an engine recomputes it when those change, and the computed fields are never edited directly.
 
 `tests/scene-helpers.js` builds the model, picker, view, engines and tool on a fake 100 × 100 px canvas, so anything short of real pixels can be unit-tested.
 
@@ -73,7 +74,7 @@ This is the pattern for everything that depends on something else (curve → reg
 
 ## Deployment
 
-GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.10`) shows which version is live; raise it with each feature that goes live.
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.11`) shows which version is live; raise it with each feature that goes live.
 
 ## Writing for the UI
 
@@ -105,8 +106,7 @@ Raised in the design discussion; check with the owner before building on any of 
 - Fitting details: area-weighted fits; a geometric (not algebraic) sphere fit with coverage reported, because shallow joint surfaces constrain the radius poorly; a cylinder's starting axis from the surface normals; an outlier-resistant option.
 - Results per fit: RMS and maximum deviation, coverage, number of faces, a deviation map on the mesh.
 - A **support plane** (touches the mesh at three points, everything else on one side) as the "standing on a table" plane, distinct from a least-squares plane.
-- A **coordinate frame** object (origin and three axes built from primitives); orienting a mesh means aligning its frame with the scene's axes.
-- Measurements as tree nodes, including angles projected onto a reference plane (torsion, version).
+- Orienting a mesh means aligning a coordinate system (built in v0.11) with the scene's axes.
 - A stored sign for plane normals and line directions, with a flip button.
 - Saving: a fitted primitive stores both its input (region, method) and its result, like curves in landmark-json; probably a `primitives` section in that format.
 
@@ -165,6 +165,16 @@ To add a way of making something: add a command to `MENUS` (new input kinds go i
 - Commands with two inputs use the prompt strip: the selected object is the first if it suits, then "Step 2 of 2 (“Sphere 2” taken)". The same object can't be given twice.
 - Inputs from different meshes make a global (top-level) object; the maths treats file coordinates as scene coordinates, which is right only while meshes can't move. **When moving meshes is built, `construction-engine.js` must bring inputs into scene coordinates first.**
 
+## How measuring and coordinate systems work (built in v0.11, asked for by the owner)
+
+- Measurements are tree nodes (kind `measure`, named "Distance 1", "Angle 1", "Coordinates 1"), made from the Measure menu or "Measure from this" in Properties, through the same prompt strip. They hang under the mesh their inputs share. The value shows beside the name in the Objects list (`measureText` in `properties-panel.js`).
+- Distance: between two points (with dx, dy, dz), from a point to a line or a plane (which is chosen by what is clicked second; to a plane also signed), between two lines (shortest; parallel lines noted). Drawn as a thin line between what was measured.
+- Angle between lines and/or planes: two lines by their stored directions (0–180°, plus the smaller angle 0–90°), so flipping a line changes it; a line and a plane −90° to 90°, positive towards the side the normal points to; two planes between their normals. Angle at a corner point between two others (0–180°). Angle between two lines seen on a plane: both projected, the turn from the first to the second, anticlockwise looking against the normal positive (−180° to 180°); a line can stand for the plane square to it (femoral torsion: neck axis and condylar line, seen along the shaft axis). A cylinder counts as its axis, a sphere as its centre.
+- Coordinate systems (kind `frame`, Axes menu, named "Axes 1"): from an origin and two directions (line, plane normal, cylinder axis) or from three points. The first direction gives the `primary` axis exactly; the second, squared up to it, gives `secondary`; the third makes it right-handed (x × y = z). Defaults X then Y; changed in Properties (choosing the other's axis swaps them). Drawn as red/green/blue arrows (X/Y/Z), a tenth of the scene long.
+- Measure ▸ Coordinates of a point in a coordinate system: the point's x, y, z in it.
+- A command is offered (menu prompt or Properties button) only when the scene holds enough objects for every input (two different points for a distance); otherwise a note says what to make first (`CommandRunner._missing`).
+- Not built: a quick ruler on the rail (two clicks on the surface give a distance without making points); one table of every measurement to copy at once; coordinates of everything in a chosen coordinate system.
+
 ## Lasso and Box selection (built in v0.7, asked for by the owner)
 
 - The Lasso and Box buttons on the rail switch a selection tool on (one tool at a time, with Curve). While on, a left-drag draws the outline and the camera doesn't turn (`controls.noRotate`); right-drag pans, scroll zooms. A click (no outline) still selects what is under it.
@@ -191,7 +201,7 @@ A BoneFitter template would list steps (select a region, fit a primitive, constr
 
 ## Not done yet
 
-- Coordinate systems; measuring (distances, angles); moving meshes; saving the scene (curves, regions, fits, points, lines) and exporting numbers.
+- Moving meshes (orienting by a coordinate system); saving the scene (curves, regions, fits, points, lines, coordinate systems, measurements) and exporting all the numbers at once.
 - Dragging a placed point; more ways to make points (projected onto a plane or line, typed coordinates) and lines (through a point parallel to another line).
 - A support plane (standing on a table) is still only proposed; the least-squares plane is not that.
 - A deviation map on the mesh, and refitting without faces beyond a tolerance (both proposed).

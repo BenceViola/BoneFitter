@@ -13,7 +13,7 @@
 
 import { COMMANDS, INPUTS } from './commands.js';
 
-const KIND_WORDS = { mesh: 'a mesh', group: 'a landmark file', point: 'a point', line: 'a line', curve: 'a curve', region: 'a region', sphere: 'a sphere', cylinder: 'a cylinder', plane: 'a plane' };
+const KIND_WORDS = { mesh: 'a mesh', group: 'a landmark file', point: 'a point', line: 'a line', frame: 'a coordinate system', measure: 'a measurement', curve: 'a curve', region: 'a region', sphere: 'a sphere', cylinder: 'a cylinder', plane: 'a plane' };
 
 export class CommandRunner extends EventTarget {
   constructor({ model, regions, fits, constructs }) {
@@ -42,11 +42,21 @@ export class CommandRunner extends EventTarget {
     return node ? input.accepts(this.ctx, node) : false;
   }
 
-  // The commands that can start from this object: the "Make from this" buttons.
+  // The first input that the scene has too few objects for (two points
+  // for a line need two different points), or null.
+  _missing(command) {
+    const all = [...this.model.nodes.values()];
+    const needed = {};
+    for (const kind of command.inputs) needed[kind] = (needed[kind] ?? 0) + 1;
+    return command.inputs.find((kind) => all.filter((n) => INPUTS[kind].accepts(this.ctx, n) === true).length < needed[kind]) ?? null;
+  }
+
+  // The commands that can start from this object, and be finished with what
+  // is in the scene: the "Make from this" and "Measure from this" buttons.
   available(node) {
     if (!node) return [];
     return Object.values(COMMANDS).filter((c) => {
-      if (!c.inputs.length) return false;
+      if (!c.inputs.length || this._missing(c)) return false;
       // Where a closed curve could stand for its region, the plane is the one through the curve itself.
       if (c.id === 'plane-fit' && node.kind === 'curve') return false;
       return this._accepts(INPUTS[c.inputs[0]], node) === true;
@@ -62,6 +72,13 @@ export class CommandRunner extends EventTarget {
       return { status: 'tool', tool: command.tool };
     }
     const was = this.active;
+    // Anything the command needs that nothing in the scene could give: say what to make first, don't ask.
+    // (The first input, when missing, is dealt with below, where the selection can say why it won't do.)
+    const missing = this._missing(command);
+    if (missing && missing !== command.inputs[0]) {
+      if (was) this.cancel();
+      return { status: 'nothing', message: INPUTS[missing].none };
+    }
     this.command = command;
     this.picked = [];
     this.note = null;

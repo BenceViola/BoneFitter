@@ -164,6 +164,9 @@
   .tree-name .label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .tree-name .count { margin-left: auto; font: 11.5px var(--font-data); color: var(--muted); }
   .tree-name .count.problem { color: var(--danger); font-weight: 500; }
+  .tree-name .count.value { color: var(--fg); padding-left: 8px; white-space: nowrap; }
+  .props-axes { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; padding: 10px 16px 0; font-size: 12.5px; color: var(--muted); }
+  .props-axes select { justify-self: start; }
   .tree-name .icon { flex: none; color: var(--muted); }
   .tree-row[data-status="placed"] .icon { color: #2f63e0; }
   .tree-row[data-status="estimated"] .icon { color: #d98a00; }
@@ -248,10 +251,11 @@
   }
   .toolbar .spacer { flex: 1; }
   /* One menu per kind of object, each listing the ways to make it. */
-  .menus { display: flex; flex-wrap: wrap; gap: 6px; }
+  .menus { display: flex; flex-wrap: wrap; gap: 4px; }
   .menu { position: relative; }
-  .menu-btn { gap: 6px; }
-  .menu-btn .caret { width: 10px; height: 10px; margin-left: 1px; color: var(--muted); }
+  /* Eight menus and View share one row at 1280 px: kept tight. */
+  .btn.menu-btn { gap: 4px; padding: 0 8px; }
+  .menu-btn .caret { width: 8px; height: 8px; color: var(--muted); }
   .menu-btn[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
   .menu-list {
     position: absolute;
@@ -454,7 +458,7 @@
 <div class="app">
   <aside class="panel">
     <header class="brand">
-      <h1>BoneFitter <span class="ver">v0.10</span></h1>
+      <h1>BoneFitter <span class="ver">v0.11</span></h1>
     </header>
 
     <div id="message" class="message" role="alert" hidden></div>
