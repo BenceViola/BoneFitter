@@ -284,7 +284,11 @@
     color: var(--muted);
     pointer-events: none;
   }
-  .stage.is-drawing canvas { cursor: crosshair; }
+  .stage.is-drawing canvas, .stage.is-selecting canvas { cursor: crosshair; }
+  .select-overlay { position: absolute; inset: 0; width: 100%; height: 100%; pointer-events: none; z-index: 3; }
+  .select-overlay path { fill: color-mix(in srgb, var(--accent) 12%, transparent); stroke: var(--accent); stroke-width: 1.5; stroke-dasharray: 5 3; }
+  .check { display: inline-flex; align-items: center; gap: 6px; font-size: 13px; cursor: pointer; }
+  .tool-strip #select-hint { flex: 1 1 260px; }
   /* The buttons of the tool in use, in a row of their own under the toolbar,
      so they never cover the mesh. */
   .tool-strip {
@@ -374,7 +378,7 @@
 <div class="app">
   <aside class="panel">
     <header class="brand">
-      <h1>BoneFitter <span class="ver">v0.6</span></h1>
+      <h1>BoneFitter <span class="ver">v0.7</span></h1>
     </header>
 
     <div id="message" class="message" role="alert" hidden></div>
@@ -396,6 +400,12 @@
       <label for="file-input" class="btn primary" title="Open meshes (STL, PLY) and landmark files (.lmk.json)">Open…</label>
       <button type="button" class="btn tool" id="curve-btn" aria-pressed="false" title="Draw a curve on a mesh by clicking points on it">
         <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12c2-8 4-8 6-3s4 4 6-5"/></svg>Curve
+      </button>
+      <button type="button" class="btn tool" id="lasso-btn" aria-pressed="false" title="Select part of a mesh by drawing round it">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5c3.6 0 6.5 1.8 6.5 4s-2.9 4-6.5 4c-1 0-2-.1-2.8-.4M3 8.6C2 7.9 1.5 7.2 1.5 6.5c0-2.2 2.9-4 6.5-4"/><path d="M4.5 9.5c-1.2.6-1.5 2-.6 3 .7.7 1.8.6 2.4 0"/></svg>Lasso
+      </button>
+      <button type="button" class="btn tool" id="box-btn" aria-pressed="false" title="Select part of a mesh by dragging a box over it">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" stroke-dasharray="2 1.5"/></svg>Box
       </button>
       <button type="button" class="btn tool" id="region-btn" title="Make a region: the part of the mesh that the selected closed curve encloses">
         <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 6c1-3 6-4 9-2s2 7-1 8-9-2-8-6z"/></svg>Region
@@ -432,7 +442,16 @@
       </span>
     </div>
 
+    <div class="tool-strip" id="select-strip" role="group" aria-label="Selection tool" hidden>
+      <span id="select-hint" aria-live="polite"></span>
+      <span class="tool-buttons">
+        <label class="check"><input type="checkbox" id="select-through"> Select through the surface</label>
+        <button type="button" class="btn small" id="select-done" title="Leave the selection tool (Esc)">Done</button>
+      </span>
+    </div>
+
     <main class="stage" id="stage" aria-label="3D view">
+      <svg class="select-overlay" id="select-overlay" aria-hidden="true" hidden><path id="select-path"/></svg>
       <p class="stage-empty" id="stage-empty" hidden>Open STL or PLY meshes, or drop them here.</p>
       <p class="space-note" id="space-note"></p>
       <div class="busy" id="busy" hidden>

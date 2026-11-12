@@ -7,13 +7,20 @@
 //   a boundary curve is removed   it is taken off its regions; a region
 //                                 left with no boundary is removed too
 //
-// A region node holds what it was made from (`boundary`: curve ids, and
-// `flipped`: the other side) and what was computed from that (`faces`,
+// A region is made either from curves, or by selecting on the screen with
+// the Lasso or Box tool (`selection: true`). A selection region keeps the
+// faces that were picked (`picked`) and how (`strokes`: each outline with
+// its mode and the camera's view, for the record); it has no boundary
+// curves and does not change unless selected on again.
+//
+// A region node holds what it was made from (`boundary`: curve ids, or
+// `picked` for a selection, and `flipped`: the other side) and what was computed from that (`faces`,
 // `faceCount`, `area`, `centroid`, `error`). Change a region only through
 // this engine, so the computed part never goes stale.
 
 import { computeRegion, emptyRegion, MAX_BOUNDARIES } from './region.js';
 import { BIG_MESH } from './curve-engine.js';
+import { otherFaces, faceStats } from './selection.js';
 
 export class RegionEngine {
   constructor(model, picker, curveEngine) {
@@ -38,7 +45,7 @@ export class RegionEngine {
   // The curves that could be added to a region as a further boundary.
   candidates(id) {
     const region = this.model.get(id);
-    if (region?.kind !== 'region' || region.boundary.length >= MAX_BOUNDARIES) return [];
+    if (region?.kind !== 'region' || region.selection || region.boundary.length >= MAX_BOUNDARIES) return [];
     return this.model.children(region.parent).filter((c) => this.canBound(c) && !region.boundary.includes(c.id));
   }
 
@@ -47,6 +54,12 @@ export class RegionEngine {
     const curve = this.model.get(curveId);
     if (!this.canBound(curve)) return null;
     const fields = { parent: curve.parent, boundary: [curveId], flipped: false };
+    return this.model.add('region', { ...fields, ...this.compute(fields) });
+  }
+
+  // Make a region from faces picked on the screen (the Lasso or Box tool).
+  createSelection(meshId, picked, stroke) {
+    const fields = { parent: meshId, boundary: [], selection: true, picked, flipped: false, strokes: [stroke] };
     return this.model.add('region', { ...fields, ...this.compute(fields) });
   }
 
@@ -60,6 +73,14 @@ export class RegionEngine {
   // Compute a region (a node, or just { parent, boundary, flipped }).
   compute(region) {
     const meshId = region.parent;
+    if (region.selection) {
+      const g = this.curveEngine.geometryOf(meshId);
+      if (!g) return emptyRegion('no-curve');
+      const count = (g.index ? g.index.count : g.attributes.position.count) / 3;
+      const faces = region.flipped ? otherFaces(region.picked, count) : region.picked;
+      if (!faces.length) return emptyRegion('empty');
+      return { faces, faceCount: faces.length, ...faceStats(g, faces), error: null };
+    }
     const curves = region.boundary.map((id) => this.model.get(id));
     if (!curves.length || curves.some((c) => !c)) return emptyRegion('no-curve');
     if (curves.some((c) => !this.canBound(c))) return emptyRegion('not-closed');

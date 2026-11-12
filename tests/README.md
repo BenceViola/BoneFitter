@@ -26,13 +26,14 @@ If Playwright can't download its own Chromium, point the browser tests at an ins
 - `fit-engine.test.js`: spheres fitted to regions of the example mesh give back `EXAMPLE.head`, follow their region, show problems, are removed with it; drawing and Properties.
 - `mesh-export.test.js`: a region's triangles as a mesh, surface area, STL and PLY written and read back (same triangles, same area; PLY joins vertices).
 - `extract.test.js`: a new mesh from a region of the example: triangles and area are the region's, the original is untouched, its SHA-256 is that of the saved STL, it is a copy, it can be fitted to, and Properties.
+- `selection.test.js`: point in polygon, box and lasso tests, faces inside an outline (visible only, or through), combining and the other faces, area; the Lasso and Box tools making, adding to and taking from regions, choosing the mesh, a mesh in front hiding another, Properties.
 - `curve-tool.test.js`: the Curve tool click by click (start, add, finish, close, undo, cancel, another mesh), curves and their handles in the 3D view, and a curve in the Properties panel.
 - `scene-view.test.js`: the tree drawn in three.js: source geometry untouched, nesting, the framed box, markers, clicking a marker.
 - `landmark-file.test.js`: reading `.lmk.json` files, every refusal case, matching a file to its mesh.
 - `opening.test.js`: opening meshes and landmark files together, duplicates, the example making way, and what the Properties panel shows and copies.
 - `sample.test.js`: every vertex of the example mesh lies on one of the shapes `EXAMPLE` describes, so the fitting tests can trust those numbers.
 
-**Browser tests** (`tests/e2e/app.test.js`) run the real page in headless Chromium and use it as a person would: opening files, clicking meshes and markers in the 3D view, hiding, renaming, removing, copying numbers, turning the view, drawing curves and dragging their points, making regions and changing them, fitting spheres, cylinders and planes, making meshes from regions and saving them as STL and PLY (real downloads, read back). The page is served exactly as it is on disk, as GitHub Pages serves it, and each test fails if anything is logged to the browser console.
+**Browser tests** (`tests/e2e/app.test.js`) run the real page in headless Chromium and use it as a person would: opening files, clicking meshes and markers in the 3D view, hiding, renaming, removing, copying numbers, turning the view, drawing curves and dragging their points, making regions and changing them, fitting spheres, cylinders and planes, making meshes from regions and saving them as STL and PLY (real downloads, read back), selecting with Lasso and Box (real drags, with Shift and Alt). The page is served exactly as it is on disk, as GitHub Pages serves it, and each test fails if anything is logged to the browser console.
 
 The same tests run on GitHub for every push and pull request (`.github/workflows/test.yml`).
 

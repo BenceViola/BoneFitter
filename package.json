@@ -1,6 +1,6 @@
 {
   "name": "bonefitter",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "private": true,
   "description": "Fit lines, planes, spheres and cylinders to STL and PLY meshes of bones, in the browser.",
   "type": "module",

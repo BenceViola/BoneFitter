@@ -27,6 +27,7 @@ const REGION_PROBLEMS = {
   'no-common': 'No part of the surface lies between all of these curves.',
   'not-closed': 'A boundary has to be a closed loop.',
   'no-curve': 'Its boundary curve is gone.',
+  empty: 'Nothing is selected. Select with Lasso or Box again, holding Shift to add to this region.',
 };
 
 /**
@@ -102,9 +103,19 @@ export function describe(model, id) {
       rows.push(['Note', 'Some of its points are on separate pieces of the mesh. The curve is straight between those.']);
     }
   } else if (node.kind === 'region') {
-    const boundary = node.boundary.map((id) => model.get(id)?.name ?? '?').join(', ');
-    const side = node.flipped ? 'the other side' : node.boundary.length > 1 ? 'between its curves' : 'inside the curve';
-    rows.push(['Boundary', boundary]);
+    // A region drawn round with Lasso or Box has strokes instead of boundary curves.
+    const tool = node.selection ? (node.strokes[0]?.type === 'lasso' ? 'lasso' : 'box') : null;
+    const boundary = tool ?? node.boundary.map((id) => model.get(id)?.name ?? '?').join(', ');
+    const side = node.flipped ? 'the other side' : tool ? 'as selected' : node.boundary.length > 1 ? 'between its curves' : 'inside the curve';
+    if (tool) {
+      const n = node.strokes.length;
+      const kinds = new Set(node.strokes.map((s) => s.type));
+      const how = kinds.size > 1 ? 'Lasso and Box' : tool === 'lasso' ? 'Lasso' : 'Box';
+      rows.push(['Selected with', `${how} (${n} stroke${n === 1 ? '' : 's'})`]);
+      if (node.strokes.some((s) => s.through)) rows.push(['Through', 'some strokes selected through the surface']);
+    } else {
+      rows.push(['Boundary', boundary]);
+    }
     rows.push(['Side', side]);
     if (node.error) {
       rows.push(['Problem', REGION_PROBLEMS[node.error] ?? 'These curves enclose no region.']);
@@ -115,7 +126,7 @@ export function describe(model, id) {
       rows.push(['Coordinates', space]);
       copy = [
         'name\tboundary\tside\ttriangles\tarea\tcentroid_x\tcentroid_y\tcentroid_z',
-        [node.name, boundary, node.flipped ? 'other' : node.boundary.length > 1 ? 'between' : 'inside', node.faceCount, node.area, ...node.centroid].join('\t'),
+        [node.name, boundary, node.flipped ? 'other' : tool ? 'selected' : node.boundary.length > 1 ? 'between' : 'inside', node.faceCount, node.area, ...node.centroid].join('\t'),
       ].join('\n');
     }
   } else if (FIT_KINDS.has(node.kind)) {

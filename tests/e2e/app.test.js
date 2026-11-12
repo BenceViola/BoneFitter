@@ -896,6 +896,126 @@ describe('meshes from regions', () => {
   });
 });
 
+describe('lasso and box selection', () => {
+  const R = EXAMPLE.head.radius;
+  const node = (page, id) =>
+    page.evaluate((i) => {
+      const { faces, picked, line, ...rest } = window.__bf.model.get(i) ?? {};
+      return rest.id ? rest : null;
+    }, id);
+  const cam = (page) => page.evaluate(() => window.__bf.viewer.camera.position.toArray());
+  // A drag from a to b (page coordinates) through the points between, with keys held.
+  async function drag(page, points, keys = []) {
+    for (const k of keys) await page.keyboard.down(k);
+    await page.mouse.move(...points[0]);
+    await page.mouse.down();
+    for (const p of points.slice(1)) await page.mouse.move(...p, { steps: 3 });
+    await page.mouse.up();
+    for (const k of keys) await page.keyboard.up(k);
+    await page.waitForTimeout(100);
+  }
+  // The head's centre on the page, and how many pixels its radius is there.
+  async function head(page) {
+    const c = await onScreen(page, EXAMPLE.head.centre);
+    const e = await onScreen(page, EXAMPLE.head.centre.map((v, i) => v + (i === 1 ? R : 0)));
+    return { x: c.x, y: c.y, r: Math.hypot(e.x - c.x, e.y - c.y) };
+  }
+
+  test('Box: a drag over the head makes a region of its visible part; a sphere on it is the head', async () => {
+    const page = await start();
+    await page.locator('#box-btn').click();
+    assert.equal(await page.locator('#box-btn').getAttribute('aria-pressed'), 'true');
+    assert.match(await page.locator('#select-hint').innerText(), /Drag a box over the part/);
+    const h = await head(page);
+    const before = await cam(page);
+    await drag(page, [[h.x - 0.5 * h.r, h.y - 0.5 * h.r], [h.x + 0.5 * h.r, h.y + 0.5 * h.r]]);
+    assert.deepEqual(await cam(page), before, 'the camera did not turn');
+    assert.equal(await page.locator('#select-overlay').isHidden(), true);
+
+    const p = await properties(page);
+    assert.equal(p.kind, 'Region');
+    assert.equal(p.rows['Selected with'], 'Box (1 stroke)');
+    const r = await node(page, 'r1');
+    assert.equal(r.error, null);
+    assert.ok(r.faceCount > 100);
+    await page.locator('#sphere-btn').click();
+    assert.equal((await properties(page)).rows.Radius, '12.000');
+  });
+
+  test('Shift-drag adds to the region, Alt-drag takes away', async () => {
+    const page = await start();
+    await page.locator('#box-btn').click();
+    const h = await head(page);
+    await drag(page, [[h.x - 0.5 * h.r, h.y - 0.5 * h.r], [h.x, h.y + 0.5 * h.r]]);
+    const first = (await node(page, 'r1')).faceCount;
+    await drag(page, [[h.x, h.y - 0.5 * h.r], [h.x + 0.5 * h.r, h.y + 0.5 * h.r]], ['Shift']);
+    const added = (await node(page, 'r1')).faceCount;
+    assert.ok(added > 1.5 * first, `${first} then ${added}`);
+    await drag(page, [[h.x - 0.6 * h.r, h.y - 0.6 * h.r], [h.x + 0.6 * h.r, h.y]], ['Alt']);
+    const r = await node(page, 'r1');
+    assert.ok(r.faceCount < added);
+    assert.deepEqual(r.strokes.map((s) => s.mode), ['new', 'add', 'remove']);
+    assert.deepEqual(await names(page), ['Example femur', 'Region 1']);
+  });
+
+  test('Lasso: an outline round the head; visible surface only unless "through" is ticked', async () => {
+    const page = await start();
+    await page.locator('#lasso-btn').click();
+    const h = await head(page);
+    const ring = Array.from({ length: 13 }, (_, k) => [h.x + 0.6 * h.r * Math.cos((2 * Math.PI * k) / 12), h.y + 0.6 * h.r * Math.sin((2 * Math.PI * k) / 12)]);
+    // While dragging, the outline is drawn over the view.
+    await page.mouse.move(...ring[0]);
+    await page.mouse.down();
+    for (const p of ring.slice(1, 6)) await page.mouse.move(...p, { steps: 2 });
+    assert.equal(await page.locator('#select-overlay').isVisible(), true);
+    assert.match(await page.locator('#select-path').getAttribute('d'), /^M[\d.]+ [\d.]+(L[\d.]+ [\d.]+){4,}Z$/);
+    for (const p of ring.slice(6)) await page.mouse.move(...p, { steps: 2 });
+    await page.mouse.up();
+    await page.waitForTimeout(100);
+    assert.equal(await page.locator('#select-overlay').isVisible(), false);
+    const visible = await node(page, 'r1');
+    assert.equal((await properties(page)).rows['Selected with'], 'Lasso (1 stroke)');
+    await page.locator('#select-through').check();
+    await page.locator('#tree .tree-name', { hasText: 'Example femur' }).click();
+    await drag(page, ring);
+    const through = await node(page, 'r2');
+    assert.ok(through.faceCount > 1.7 * visible.faceCount, `${visible.faceCount} visible, ${through.faceCount} through`);
+    assert.equal(through.strokes[0].through, true);
+  });
+
+  test('one tool at a time; Esc and Done leave the tool, and the camera turns again', async () => {
+    const page = await start();
+    await page.locator('#lasso-btn').click();
+    await page.locator('#box-btn').click();
+    assert.equal(await page.locator('#lasso-btn').getAttribute('aria-pressed'), 'false');
+    await page.locator('#curve-btn').click();
+    assert.equal(await page.locator('#box-btn').getAttribute('aria-pressed'), 'false');
+    assert.equal(await page.locator('#select-strip').isHidden(), true);
+    await page.locator('#box-btn').click();
+    assert.equal(await page.locator('#curve-btn').getAttribute('aria-pressed'), 'false');
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#box-btn').getAttribute('aria-pressed'), 'false');
+    await page.locator('#box-btn').click();
+    await page.locator('#select-done').click();
+    assert.equal(await page.locator('#select-strip').isHidden(), true);
+    const before = await cam(page);
+    const box = await page.locator('#stage canvas').boundingBox();
+    await drag(page, [[box.x + 20, box.y + box.height - 40], [box.x + 120, box.y + box.height - 60]]);
+    assert.notDeepEqual(await cam(page), before, 'without the tool, a drag turns the view');
+  });
+
+  test('with the tool on, a click still selects what is under it; a drag beside the mesh says nothing was inside', async () => {
+    const page = await start();
+    await page.locator('#box-btn').click();
+    await clickAt(page, await onScreen(page, EXAMPLE.head.centre.map((v, i) => v + (i === 2 ? R : 0))));
+    assert.equal((await properties(page)).kind, 'Mesh');
+    const box = await page.locator('#stage canvas').boundingBox();
+    await drag(page, [[box.x + 10, box.y + box.height - 80], [box.x + 60, box.y + box.height - 30]]);
+    assert.match(await page.locator('#select-hint').innerText(), /Nothing of the mesh was inside the outline/);
+    assert.deepEqual(await names(page), ['Example femur']);
+  });
+});
+
 describe('view', () => {
   test('the axis buttons and F turn and refit the camera', async () => {
     const page = await start();

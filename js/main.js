@@ -14,6 +14,7 @@ import { CurveEngine } from './curve-engine.js';
 import { CurveTool } from './curve-tool.js';
 import { setupInteraction } from './interaction.js';
 import { RegionEngine } from './region-engine.js';
+import { SelectTool } from './select-tool.js';
 import { FitEngine } from './fit-engine.js';
 import { meshFromRegion } from './extract.js';
 import { stlBytes, plyBytes } from './mesh-export.js';
@@ -67,9 +68,35 @@ if (webgl) {
   app.tool = new CurveTool({ model, picker, engine: app.engine, view, ui: app });
   app.regions = new RegionEngine(model, picker, app.engine);
   app.fits = new FitEngine(model, (id) => view.sources.get(id) || null);
-  setupInteraction({ stage: $('stage'), viewer, picker, view, model, engine: app.engine, regions: app.regions, tool: app.tool });
+  app.select = new SelectTool({ model, picker, view, viewer, regions: app.regions, ui: app });
+  setupInteraction({
+    stage: $('stage'),
+    viewer,
+    picker,
+    view,
+    model,
+    engine: app.engine,
+    regions: app.regions,
+    tool: app.tool,
+    select: app.select,
+    overlay: $('select-overlay'),
+  });
+  app.select.addEventListener('change', renderSelect);
+  // One tool at a time: switching one on switches the others off.
+  for (const mode of ['lasso', 'box']) {
+    $(`${mode}-btn`).addEventListener('click', () => {
+      const on = app.select.mode !== mode;
+      if (on) app.tool.setActive(false);
+      app.select.setMode(on ? mode : null);
+    });
+  }
+  $('select-through').addEventListener('change', (e) => app.select.setThrough(e.target.checked));
+  $('select-done').addEventListener('click', () => app.select.setMode(null));
   app.tool.addEventListener('change', renderTool);
-  $('curve-btn').addEventListener('click', () => app.tool.setActive(!app.tool.active));
+  $('curve-btn').addEventListener('click', () => {
+    if (!app.tool.active) app.select.setMode(null);
+    app.tool.setActive(!app.tool.active);
+  });
   $('curve-finish').addEventListener('click', () => app.tool.finish());
   $('curve-close').addEventListener('click', () => app.tool.close());
   $('curve-undo').addEventListener('click', () => app.tool.undo());
@@ -142,6 +169,22 @@ function renderTool() {
   $('curve-cancel').disabled = t.points === 0;
 }
 
+// The Lasso and Box buttons, and their strip over the 3D view. While one is
+// on, a left-drag draws an outline, so the camera doesn't turn (pan and zoom still work).
+function renderSelect() {
+  const s = app.select.state();
+  $('lasso-btn').setAttribute('aria-pressed', String(s.mode === 'lasso'));
+  $('box-btn').setAttribute('aria-pressed', String(s.mode === 'box'));
+  $('stage').classList.toggle('is-selecting', !!s.mode);
+  viewer.controls.noRotate = !!s.mode;
+  if ($('select-strip').hidden === !!s.mode) {
+    $('select-strip').hidden = !s.mode;
+    viewer.resize();
+  }
+  $('select-hint').textContent = s.hint;
+  $('select-through').checked = s.through;
+}
+
 // ---- Toolbar, keyboard -----------------------------------------------------
 
 for (const btn of document.querySelectorAll('.viewbar [data-view]')) {
@@ -154,6 +197,7 @@ window.addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, textarea, select')) return;
   if (e.key === 'f' || e.key === 'F') viewer?.fit();
   else if (e.key === 'h' || e.key === 'H') viewer?.viewFrom('home');
+  else if (e.key === 'Escape' && app.select?.active) app.select.setMode(null);
   else if (tool?.active && curveKey(e)) e.preventDefault();
 });
 

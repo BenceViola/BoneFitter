@@ -2,7 +2,7 @@
 
 Browser app for fitting geometric primitives (lines, planes, spheres, cylinders) to STL/PLY meshes of bones, to quantify structures such as epiphyses and joint surfaces. Sister app of Landmarker3D and landmarker2D: same stack, same look, opened from GitHub Pages, nothing installed, no data leaves the computer. The owner is a morphometrician, not a web developer: explain changes in plain terms.
 
-**State (v0.6):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose); spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path; a region can be made into a mesh of its own; every mesh shows its surface area and can be saved as STL or PLY. Lines, constructing, measuring, moving meshes and saving are not built yet.
+**State (v0.7):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose), and regions can also be selected on the screen with Lasso or Box; spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path; a region can be made into a mesh of its own; every mesh shows its surface area and can be saved as STL or PLY. Lines, constructing, measuring, moving meshes and saving are not built yet.
 
 ## Ground rules (do not break these)
 
@@ -21,7 +21,7 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 |---|---|
 | `index.html` | Page, styles (colour tokens, light and dark), import map |
 | `js/main.js` | Wiring: viewer, panels, toolbar and tool buttons, keyboard, drag and drop, messages |
-| `js/interaction.js` | Mouse and touch in the 3D view: click to select (or to the tool in use), dragging a curve's handle |
+| `js/interaction.js` | Mouse and touch in the 3D view: click to select (or to the tool in use), dragging a curve's handle, drawing a lasso or box outline |
 | `js/scene-model.js` | The object tree: nodes (`mesh`, `group`, `point`, `curve`, `region`, `sphere`, `cylinder`, `plane`), attaching, hiding, removing, updating, selecting. No three.js |
 | `js/scene-view.js` | Draws the tree: one three.js object per node, nested as in the tree; markers, curve lines and handles, region tints, fitted primitives (outline, a faint fill for planes, and a centre mark, all drawn through the mesh); what is under the cursor (`pointAt`, `fitAt`, `curveAt`, `handleAt`, `regionAt`); the box the camera frames |
 | `js/viewer.js` | three.js scene, camera, lights, framing; `displayGeometry` (the drawn copy of a mesh) |
@@ -40,6 +40,8 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `js/mesh-export.js` | A region's triangles as a geometry of their own, surface area, binary STL and PLY writers (PLY joins corners at the same position). No page |
 | `js/extract.js` | New mesh from a region: built as if saved as STL and opened again, kept beside the original |
 | `js/file-io.js` | Landmarker3D's saving module, unchanged: Save dialog, claude.ai download capability, plain download |
+| `js/selection.js` | Faces inside a screen outline (lasso or box), visible or through; combining face lists, the other faces, area and centroid. No page |
+| `js/select-tool.js` | The Lasso and Box tools as a state machine (`setMode`, `setThrough`, `apply(shape, 'new' / 'add' / 'remove')`); no mouse, so it is unit-tested |
 | `js/curve-tool.js` | The Curve tool as a state machine (`click`, `finish`, `close`, `undo`, `cancel`); no page or mouse, so it is unit-tested |
 | `js/sample.js` | The example mesh shown at start: a toy femur of exact shapes, with its true measurements in `EXAMPLE` |
 
@@ -63,7 +65,7 @@ This is the pattern for everything that depends on something else (curve → reg
 
 ## Deployment
 
-GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.6`) shows which version is live; raise it with each feature that goes live.
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.7`) shows which version is live; raise it with each feature that goes live.
 
 ## Writing for the UI
 
@@ -133,6 +135,14 @@ Raised in the design discussion; check with the owner before building on any of 
 - It is drawn in its own colour and slightly in front of the original it overlaps; hide the original to see it alone.
 - Every mesh shows its surface area (sum of triangle areas, `area` from `meshFields`) and has a row to copy.
 - Save as STL (binary, triangles with their own corners) and Save as PLY (binary little-endian, corners at exactly the same position joined into one vertex) for any mesh, through `file-io.js`. Vertex colours are not carried over.
+
+## Lasso and Box selection (built in v0.7, asked for by the owner)
+
+- Lasso and Box buttons switch a selection tool on (one tool at a time, with Curve). While on, a left-drag draws the outline and the camera doesn't turn (`controls.noRotate`); right-drag pans, scroll zooms, Esc or Done leaves the tool. A click (no outline) still selects what is under it.
+- A triangle is selected when its centre is inside the outline on screen. "Visible surface only" is the default: the centre must be the first surface along the line of sight from the camera (BVH ray test; other meshes in front hide too). "Select through the surface" takes everything inside the outline.
+- Plain drag: a new region on the mesh of the selected object, or the only mesh shown (otherwise the tool asks which). Shift-drag adds to the selected Lasso/Box region, Alt-drag takes away (a Shift-drag with no such region selected makes a new one).
+- A selection region (`selection: true`) keeps the faces picked (`picked`) and every stroke (`strokes`: type, mode, through, outline in normalised screen coordinates, camera position, target, up, fov, aspect) as the record. It has no boundary curves and doesn't change unless selected on again. "Use the other side" gives every other face of the mesh. Fits, new meshes and saving work on it like on any region.
+- Taking everything away leaves the region empty, with the reason in Properties.
 
 ## Build order (agreed)
 

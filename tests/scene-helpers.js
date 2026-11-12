@@ -9,6 +9,7 @@ import { CurveEngine } from '../js/curve-engine.js';
 import { CurveTool } from '../js/curve-tool.js';
 import { RegionEngine } from '../js/region-engine.js';
 import { FitEngine } from '../js/fit-engine.js';
+import { SelectTool } from '../js/select-tool.js';
 
 export function fakeViewer(cameraPos = [0, 0, 60], target = [0, 0, 0]) {
   const camera = new THREE.PerspectiveCamera(30, 1, 0.01, 1000);
@@ -50,6 +51,7 @@ export function scene(cameraPos, target) {
   const busy = [];
   const ui = { setBusy: (t) => busy.push(t), nextFrame: async () => {} };
   const tool = new CurveTool({ model, picker, engine, view, ui });
+  const select = new SelectTool({ model, picker, view, viewer, regions, ui });
   const addMesh = (name, geometry) => {
     const node = model.add('mesh', { name, file: `${name}.stl`, faceCount: geometry.attributes.position.count / 3 });
     view.addMesh(node, geometry);
@@ -67,7 +69,7 @@ export function scene(cameraPos, target) {
     engine.refresh(node.id);
     return node;
   };
-  return { viewer, model, picker, view, engine, regions, fits, tool, ui, busy, addMesh, cp, clickOn, addCurve };
+  return { viewer, model, picker, view, engine, regions, fits, tool, select, ui, busy, addMesh, cp, clickOn, addCurve };
 }
 
 export const events = (target) => {
