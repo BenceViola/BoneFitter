@@ -2,7 +2,7 @@
 
 Browser app for fitting geometric primitives (lines, planes, spheres, cylinders) to STL/PLY meshes of bones, to quantify structures such as epiphyses and joint surfaces. Sister app of Landmarker3D and landmarker2D: same stack, same look, opened from GitHub Pages, nothing installed, no data leaves the computer. The owner is a morphometrician, not a web developer: explain changes in plain terms.
 
-**State (v0.9):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose), and regions can also be selected on the screen with Lasso or Box; spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path; a region can be made into a mesh of its own; every mesh shows its surface area and can be saved as STL or PLY. Things are made from menus (one per kind of object) or from the selected object's Properties; mouse tools sit on a rail beside the 3D view. Lines, constructing, measuring, moving meshes and saving are not built yet.
+**State (v0.10):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose), and regions can also be selected on the screen with Lasso or Box; spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path; points can be placed on a mesh or made from other objects (a sphere's centre, a centroid, a midpoint, a line meeting a plane), and lines made from them (through two points, a cylinder's axis, fitted to a curve, perpendicular to a plane, two planes meeting); a region can be made into a mesh of its own; every mesh shows its surface area and can be saved as STL or PLY. Things are made from menus (one per kind of object) or from the selected object's Properties; mouse tools sit on a rail beside the 3D view. Coordinate systems, measuring, moving meshes and saving are not built yet.
 
 ## Ground rules (do not break these)
 
@@ -22,8 +22,8 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `index.html` | Page, styles (colour tokens, light and dark), import map |
 | `js/main.js` | Wiring: viewer, panels, menus, tool rail, the strips of the tool or command in use, keyboard, drag and drop, messages |
 | `js/interaction.js` | Mouse and touch in the 3D view: click to select (or to the tool in use, or the object a command asks for), dragging a curve's handle, drawing a lasso or box outline |
-| `js/scene-model.js` | The object tree: nodes (`mesh`, `group`, `point`, `curve`, `region`, `sphere`, `cylinder`, `plane`), attaching, hiding, removing, updating, selecting. No three.js |
-| `js/scene-view.js` | Draws the tree: one three.js object per node, nested as in the tree; markers, curve lines and handles, region tints, fitted primitives (outline, a faint fill for planes, and a centre mark, all drawn through the mesh); what is under the cursor (`pointAt`, `fitAt`, `curveAt`, `handleAt`, `regionAt`); the box the camera frames |
+| `js/scene-model.js` | The object tree: nodes (`mesh`, `group`, `point`, `line`, `curve`, `region`, `sphere`, `cylinder`, `plane`), attaching, hiding, removing, updating, selecting. No three.js |
+| `js/scene-view.js` | Draws the tree: one three.js object per node, nested as in the tree; markers, curve lines and handles, region tints, fitted primitives (outline, a faint fill for planes, and a centre mark, all drawn through the mesh); what is under the cursor (`pointAt`, `fitAt`, `curveAt`, `handleAt`, `regionAt`); made points and lines (drawn through the mesh, a line with an arrowhead); `lineAt`; the box the camera frames |
 | `js/viewer.js` | three.js scene, camera, lights, framing; `displayGeometry` (the drawn copy of a mesh) |
 | `js/picking.js` | BVH raycasting over several meshes; hits in the mesh file's coordinates wherever the mesh is |
 | `js/mesh-loader.js` | STL/PLY reading, raw counts, SHA-256, triangle-only checks |
@@ -43,6 +43,9 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `js/selection.js` | Faces inside a screen outline (lasso or box), visible or through; combining face lists, the other faces, area and centroid. No page |
 | `js/select-tool.js` | The Lasso and Box tools as a state machine (`setMode`, `setThrough`, `apply(shape, 'new' / 'add' / 'remove')`); no mouse, so it is unit-tested |
 | `js/curve-tool.js` | The Curve tool as a state machine (`click`, `finish`, `close`, `undo`, `cancel`); no page or mouse, so it is unit-tested |
+| `js/construct.js` | Maths for made points and lines: midpoint, line through two points, line fitted to a path, perpendicular to a plane, two planes meeting, a line meeting a plane. No three.js |
+| `js/construction-engine.js` | Made points and lines as tree objects (`method`, `inputs`, `flipped`), made again when an input changes, removed with it; points placed on a mesh (`placePoint`). A sphere stands for its centre (`positionOf`) |
+| `js/point-tool.js` | The Point tool: a click on a mesh places a point, a click on a point selects it; no mouse, so it is unit-tested |
 | `js/commands.js` | The ways to make each kind of object (`MENUS`, `COMMANDS`): what each needs (`inputs`, from `INPUTS`) and how it is made (`run`). No page |
 | `js/command-runner.js` | Runs a command: takes the selected object when it suits, otherwise asks for each input in turn (`start`, `offer`, `prefer`, `cancel`, `available(node)`); no page or mouse, so it is unit-tested |
 | `js/menus.js` | The menus above the 3D view, built from `MENUS` |
@@ -56,7 +59,9 @@ A region node holds what it was made from (`boundary`: curve ids, `flipped`) and
 
 A fitted node (`sphere`, `cylinder`, `plane`) holds what it was made from (`source`: a region's id, or a curve's for a plane; `method`; `flipped` for planes and cylinders) and what was computed (see the top of `fit-engine.js`; every kind has `rms`, `maxDeviation`, `error`), in the mesh file's coordinates. Change it only through `FitEngine` (`create(sourceId, kind)`, `set`, `refresh`). A failed fit clears every computed field (`EMPTY` in `fit-engine.js`), because `SceneModel.update` merges. The fit engine reacts to a region's or curve's `update`, so a moved curve point flows curve → region → fit in one go.
 
-This is the pattern for everything that depends on something else (curve → region → fitted primitive): the dependent stores the ids it was made from, an engine recomputes it when those change, and the computed fields are never edited directly.
+A made point or line holds `method` and `inputs` (ids, in order) and, for lines, `flipped`; what is computed is listed at the top of `construction-engine.js`. Change it only through `ConstructionEngine` (`create(kind, method, inputs)`, `set`, `refresh`). It reacts to any input's `update`, so chains (sphere → its centre → a line through it → where that meets a plane) follow in one go. It hangs under the mesh all its inputs share, or at the top level when they come from different meshes.
+
+This is the pattern for everything that depends on something else (curve → region → fitted primitive → point → line): the dependent stores the ids it was made from, an engine recomputes it when those change, and the computed fields are never edited directly.
 
 `tests/scene-helpers.js` builds the model, picker, view, engines and tool on a fake 100 × 100 px canvas, so anything short of real pixels can be unit-tested.
 
@@ -68,7 +73,7 @@ This is the pattern for everything that depends on something else (curve → reg
 
 ## Deployment
 
-GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.9`) shows which version is live; raise it with each feature that goes live.
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.10`) shows which version is live; raise it with each feature that goes live.
 
 ## Writing for the UI
 
@@ -150,6 +155,16 @@ The one-row toolbar had run out of room. The owner chose a combination of two ro
 
 To add a way of making something: add a command to `MENUS` (new input kinds go in `INPUTS`) and an icon in `menus.js` for a new menu. The menus, the prompt and the Properties buttons follow. Inputs that are numbers (a radius) are not built yet: the plan is a box in the prompt strip.
 
+## How points and lines work (built in v0.10, asked for by the owner)
+
+- Point tool (rail, or Point ▸ Click on a surface): each click on a mesh places a point there (`method: 'surface'`, `anchor`, attached to the mesh); a click on a point selects it; Esc or Done ends it. Placed points can't be dragged yet.
+- Point ▸ Centre of a sphere, Centroid of a region or curve, Midway between two points, Where a line meets a plane. Line ▸ Through two points, Axis of a cylinder, Fit to a curve (least squares through the length-weighted path, pointing from the curve's start to its end; a closed loop: largest component positive), Perpendicular to a plane (inputs: plane, then point; along the plane's normal; length = distance from the point to the plane, `signed` = which side), Where two planes meet (along n1 × n2, at the point nearest the middle of the planes' points, drawn as far as the larger plane reaches).
+- Wherever a point is asked for, a sphere is taken as its centre (`INPUTS.point`), so a line through two head centres needs no extra points.
+- A line is { point, direction, ends, length }: the direction's sign is stored (Flip direction, `flipped`), ends are in its order, and what `length` measures depends on the method (Properties label it).
+- Made points and lines are drawn through the mesh in violet; placed points are drawn like landmarks (blue, hidden behind the surface).
+- Commands with two inputs use the prompt strip: the selected object is the first if it suits, then "Step 2 of 2 (“Sphere 2” taken)". The same object can't be given twice.
+- Inputs from different meshes make a global (top-level) object; the maths treats file coordinates as scene coordinates, which is right only while meshes can't move. **When moving meshes is built, `construction-engine.js` must bring inputs into scene coordinates first.**
+
 ## Lasso and Box selection (built in v0.7, asked for by the owner)
 
 - The Lasso and Box buttons on the rail switch a selection tool on (one tool at a time, with Curve). While on, a left-drag draws the outline and the camera doesn't turn (`controls.noRotate`); right-drag pans, scroll zooms. A click (no outline) still selects what is under it.
@@ -176,12 +191,13 @@ A BoneFitter template would list steps (select a region, fit a primitive, constr
 
 ## Not done yet
 
-- Lines; constructing, measuring, moving meshes; saving the scene (curves, regions, fits) and exporting numbers.
+- Coordinate systems; measuring (distances, angles); moving meshes; saving the scene (curves, regions, fits, points, lines) and exporting numbers.
+- Dragging a placed point; more ways to make points (projected onto a plane or line, typed coordinates) and lines (through a point parallel to another line).
 - A support plane (standing on a table) is still only proposed; the least-squares plane is not that.
 - A deviation map on the mesh, and refitting without faces beyond a tolerance (both proposed).
 - On a finished curve: adding or removing single points, opening or closing it again, and choosing straight (`euclidean`) paths. The engine supports all of these; there are no buttons for them yet.
 - Undo and redo.
-- Inputs typed as numbers in the prompt strip, and commands with more than one input (the runner handles several; none exist yet).
-- The view buttons (+X … Fit) are still in the toolbar; fold them into a Views menu when the menus need the room.
+- Inputs typed as numbers in the prompt strip (a sphere from a centre and a radius).
+- The view buttons are in the View menu since v0.10 (F and H still work).
 - Opening the curves of a landmark file (read past with a note).
 - A limit or warning strategy for very large scenes beyond the current note at 3 million triangles. Landmarker3D unloads meshes it isn't showing; here every mesh in the scene stays loaded.

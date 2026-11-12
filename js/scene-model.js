@@ -7,8 +7,13 @@
 //   kind 'mesh'    a loaded surface. Fields: file, format, sha256, faceCount,
 //                  vertexCount, sizeBytes, hasColors, box { min, max }.
 //   kind 'group'   a folder under a mesh, e.g. the landmarks of one file.
-//   kind 'point'   a point. Fields: position [x, y, z] or null, status,
-//                  template_id.
+//   kind 'point'   a point. Fields: position [x, y, z] or null. A landmark
+//                  from a file also has status, code, note. A point placed
+//                  or made here has `method` and, if made from other
+//                  objects, `inputs` (see construction-engine.js).
+//   kind 'line'    a line made from other objects: method, inputs, flipped;
+//                  computed point, direction, ends, length (see
+//                  construction-engine.js).
 //   kind 'curve'   a curve drawn on a mesh. What was clicked: control_points
 //                  [{ position, anchor }], closed, path ('geodesic' or
 //                  'euclidean'), as in a landmark file's curve. What was
@@ -35,8 +40,8 @@
 // template, when the app gets one, will say which objects to create, and
 // this is the link from an object back to the template step it fulfils.
 
-const PREFIX = { mesh: 'm', group: 'g', point: 'p', curve: 'c', region: 'r', sphere: 's', plane: 'f', cylinder: 'y' };
-const LABEL = { mesh: 'Mesh', group: 'Group', point: 'Point', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
+const PREFIX = { mesh: 'm', group: 'g', point: 'p', line: 'l', curve: 'c', region: 'r', sphere: 's', plane: 'f', cylinder: 'y' };
+const LABEL = { mesh: 'Mesh', group: 'Group', point: 'Point', line: 'Line', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
 
 export class SceneModel extends EventTarget {
   constructor() {

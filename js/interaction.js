@@ -1,9 +1,10 @@
 // Mouse and touch in the 3D view.
 //
 //   click                  select what is under the cursor: a point, a
-//                          fitted sphere's centre, a curve, a region, a mesh,
-//                          or nothing. With the Curve tool on, the
-//                          click goes to the tool instead (curve-tool.js).
+//                          fitted sphere's centre, a line, a curve, a region,
+//                          a mesh, or nothing. With the Curve or Point tool
+//                          on, the click goes to the tool instead
+//                          (curve-tool.js, point-tool.js).
 //   drag a curve's handle  move that clicked point over its mesh; the curve
 //                          is recomputed as it moves
 //   drag anywhere else     rotate / pan / zoom (TrackballControls)
@@ -17,7 +18,7 @@ const CLICK_SLOP = 5; // px
 const CLICK_TIME = 600; // ms
 const DRAG_START = 3; // px before a press on a handle becomes a drag
 
-export function setupInteraction({ stage, viewer, picker, view, model, engine, regions, tool, select, commands, overlay }) {
+export function setupInteraction({ stage, viewer, picker, view, model, engine, regions, tool, points, select, commands, overlay }) {
   const canvas = viewer.renderer.domElement;
   let press = null;
   let frame = 0;
@@ -152,10 +153,14 @@ export function setupInteraction({ stage, viewer, picker, view, model, engine, r
       tool.click(e.clientX, e.clientY).catch((err) => console.error(err));
       return;
     }
+    if (points?.active) {
+      points.click(e.clientX, e.clientY);
+      return;
+    }
     // A command is asking for an object: of the things under the click, take
     // the one it can use (a region under a curve, say), and offer it.
     if (commands?.active) {
-      const at = [view.pointAt, view.fitAt, view.curveAt, view.regionAt].map((f) => f.call(view, e.clientX, e.clientY));
+      const at = [view.pointAt, view.fitAt, view.lineAt, view.curveAt, view.regionAt].map((f) => f.call(view, e.clientX, e.clientY));
       const id = commands.prefer([...at, picker.pickAt(e.clientX, e.clientY)?.id].filter(Boolean));
       model.select(id);
       if (id) commands.offer(id);
@@ -165,6 +170,7 @@ export function setupInteraction({ stage, viewer, picker, view, model, engine, r
     model.select(
       view.pointAt(e.clientX, e.clientY) ??
         view.fitAt(e.clientX, e.clientY) ??
+        view.lineAt(e.clientX, e.clientY) ??
         view.curveAt(e.clientX, e.clientY) ??
         view.regionAt(e.clientX, e.clientY) ??
         picker.pickAt(e.clientX, e.clientY)?.id ??

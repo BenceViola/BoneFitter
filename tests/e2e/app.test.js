@@ -1058,8 +1058,11 @@ describe('view', () => {
       const v = window.__bf.viewer;
       return v.camera.position.clone().sub(v.controls.target).normalize().toArray();
     });
+    await page.locator('#view-menu').click();
     await page.locator('.viewbar [data-view="+x"]').click();
+    assert.equal(await page.locator('.view-list').isHidden(), true, 'the menu closes once a view is chosen');
     assert.deepEqual((await cam()).map((n) => Math.round(n * 1e6) / 1e6), [1, 0, 0]);
+    await page.locator('#view-menu').click();
     await page.locator('.viewbar [data-view="-z"]').click();
     assert.deepEqual((await cam()).map((n) => Math.round(n * 1e6) / 1e6), [0, 0, -1]);
     // Zoom far out, then F brings everything back to fill the view.
@@ -1114,7 +1117,7 @@ describe('menus, the tool rail and the prompts that ask for what a command needs
 
   test('the bar above the 3D view is one row: Open, a menu per kind of object, the views', async () => {
     const page = await start();
-    assert.deepEqual(await page.$$eval('#menus .menu-btn', (els) => els.map((e) => e.textContent.trim())), ['Region', 'Sphere', 'Cylinder', 'Plane']);
+    assert.deepEqual(await page.$$eval('.toolbar .menu-btn', (els) => els.map((e) => e.textContent.trim())), ['Region', 'Sphere', 'Cylinder', 'Plane', 'Point', 'Line', 'View']);
     const bar = await box(page, '.toolbar');
     assert.ok(bar.height < 60, `one row, ${bar.height}px high`);
     for (const id of ['region-btn', 'sphere-btn', 'cylinder-btn', 'plane-btn']) assert.equal(await page.locator(`#${id}`).count(), 0);
@@ -1122,7 +1125,7 @@ describe('menus, the tool rail and the prompts that ask for what a command needs
 
   test('the rail beside the 3D view holds the mouse tools; it never covers the view', async () => {
     const page = await start();
-    assert.deepEqual(await page.$$eval('.rail .rail-btn', (els) => els.map((e) => e.textContent.trim())), ['Select', 'Curve', 'Lasso', 'Box']);
+    assert.deepEqual(await page.$$eval('.rail .rail-btn', (els) => els.map((e) => e.textContent.trim())), ['Select', 'Curve', 'Point', 'Lasso', 'Box']);
     const rail = await box(page, '.rail');
     const stage = await box(page, '#stage');
     assert.ok(rail.x + rail.width <= stage.x + 0.5, 'the rail ends where the 3D view begins');
@@ -1280,14 +1283,14 @@ describe('menus, the tool rail and the prompts that ask for what a command needs
 
     await page.locator('#tree .tree-name', { hasText: 'Region 1' }).click();
     assert.equal(await page.locator('#prop-make .props-make-label').innerText(), 'Make from this');
-    assert.deepEqual(await offered(), ['Sphere', 'Cylinder', 'Plane', 'New mesh']);
+    assert.deepEqual(await offered(), ['Sphere', 'Cylinder', 'Plane', 'Centroid point', 'New mesh']);
     await page.locator('#prop-make [data-make="sphere-fit"]').click();
     let p = await properties(page);
     assert.deepEqual([p.name, p.rows['Fitted to'], p.rows.Radius], ['Sphere 1', 'Region 1', '12.000']);
-    assert.equal(await page.locator('#prop-make').count(), 0, 'nothing is made from a sphere yet');
+    assert.deepEqual(await offered(), ['Centre point', 'Midpoint', 'Line to a point'], 'from a sphere: its centre, and it counts as a point');
 
     await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
-    assert.deepEqual(await offered(), ['Region', 'Sphere', 'Cylinder', 'Plane']);
+    assert.deepEqual(await offered(), ['Region', 'Sphere', 'Cylinder', 'Plane', 'Centroid point', 'Line']);
     await page.locator('#prop-make [data-make="plane-curve"]').click();
     p = await properties(page);
     assert.deepEqual([p.name, p.rows['Fitted to']], ['Plane 1', 'Curve 1 (its path)']);
@@ -1298,7 +1301,7 @@ describe('menus, the tool rail and the prompts that ask for what a command needs
     await page.keyboard.press('Enter');
     await page.locator('#pointer-btn').click();
     assert.equal((await properties(page)).name, 'Curve 2');
-    assert.deepEqual(await offered(), ['Plane']);
+    assert.deepEqual(await offered(), ['Plane', 'Centroid point', 'Line']);
   });
 
   test('on a narrow screen the menus, the rail and the strip still fit', async () => {
@@ -1311,5 +1314,167 @@ describe('menus, the tool rail and the prompts that ask for what a command needs
     const stage = await box(page, '#stage');
     assert.ok(rail.x + rail.width <= stage.x + 0.5 && stage.x + stage.width <= 420.5);
     assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'nothing sticks out sideways');
+  });
+});
+
+describe('points and lines', () => {
+  const unit = (v) => v.map((x) => x / Math.hypot(...v));
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const HOME = unit([0.45, 0.35, 1]);
+  const E1 = unit(cross(HOME, [0, 1, 0]));
+  const E2 = cross(HOME, E1);
+  const onBall = (c, R, angle, t) => {
+    const a = (angle * Math.PI) / 180;
+    return c.map((v, i) => v + R * (Math.cos(a) * HOME[i] + Math.sin(a) * (Math.cos(t) * E1[i] + Math.sin(t) * E2[i])));
+  };
+  const loop = (c, R, angle, n = 8) => Array.from({ length: n }, (_, k) => onBall(c, R, angle, (2 * Math.PI * k) / n));
+  const H = Math.hypot(HOME[0], HOME[2]);
+  const onShaft = (y) => [EXAMPLE.shaft.point[0] + (7 * HOME[0]) / H, EXAMPLE.shaft.point[1] + y, EXAMPLE.shaft.point[2] + (7 * HOME[2]) / H];
+  const vec = (p, label) => ['x', 'y', 'z'].map((a) => Number(p.rows[`${label}${a}`]));
+  const close = (a, b, tol, msg) => a.forEach((v, i) => assert.ok(Math.abs(v - b[i]) <= tol, `${msg} [${i}] ${v} ≉ ${b[i]}`));
+  const strip = async (page) => ((await page.locator('#prompt-strip').isHidden()) ? null : page.locator('#prompt-text').innerText());
+
+  async function drawLoop(page, points) {
+    await page.locator('#curve-btn').click();
+    for (const p of points) await clickAt(page, await onScreen(page, p));
+    await page.keyboard.press('c');
+    await page.locator('#pointer-btn').click();
+  }
+  // A sphere fitted to a cap of a ball of the example (its loop is selected first).
+  async function capSphere(page, c, R) {
+    await drawLoop(page, loop(c, R, 35));
+    await page.locator('#prop-make [data-make="sphere-fit"]').click();
+  }
+  const select = (page, name) => page.locator(`#tree .tree-name[title="${name}"]`).click();
+
+  test('the Point tool places points where the mesh is clicked, until Esc', async () => {
+    const page = await start();
+    await page.locator('#point-btn').click();
+    assert.equal(await page.locator('#point-btn').getAttribute('aria-pressed'), 'true');
+    assert.match(await page.locator('#point-strip').innerText(), /Click on a mesh to place a point/);
+    await clickAt(page, await onScreen(page, onShaft(40)));
+    await clickAt(page, await onScreen(page, onShaft(70)));
+    assert.deepEqual(await names(page), ['Example femur', 'Point 1', 'Point 2']);
+    const p = await properties(page);
+    assert.equal(p.name, 'Point 2');
+    assert.equal(p.rows['Made as'], 'Clicked on Example femur');
+    close(vec(p, ''), onShaft(70), 0.05, 'on the shaft where clicked');
+    // A click on an existing point selects it.
+    await clickAt(page, await onScreen(page, onShaft(40)));
+    assert.equal((await properties(page)).name, 'Point 1');
+    assert.equal((await names(page)).length, 3);
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#point-strip').isHidden(), true);
+    assert.equal(await page.locator('#pointer-btn').getAttribute('aria-pressed'), 'true');
+    // Point ▸ Click on a surface switches it on too; Done switches it off.
+    await choose(page, 'point-surface');
+    assert.equal(await page.locator('#point-btn').getAttribute('aria-pressed'), 'true');
+    await page.locator('#point-done').click();
+    assert.equal(await page.locator('#point-btn').getAttribute('aria-pressed'), 'false');
+  });
+
+  test('a line through the centres of the head and a condyle: two steps, its length and direction', async () => {
+    const page = await start();
+    await capSphere(page, EXAMPLE.head.centre, EXAMPLE.head.radius);
+    await capSphere(page, EXAMPLE.condyles[0].centre, EXAMPLE.condyles[0].radius);
+    // Sphere 2 (the condyle) is selected: it is the first point, the strip asks for the second.
+    await choose(page, 'line-two-points');
+    assert.match(await strip(page), /^Line: through two points\s+Step 2 of 2 \(“Sphere 2” taken\)\. Click a point or a sphere \(its centre\)/);
+    // Click the head's centre mark in the 3D view.
+    await clickAt(page, await onScreen(page, EXAMPLE.head.centre));
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'line');
+    const p = await properties(page);
+    assert.equal(p.name, 'Line 1');
+    assert.equal(p.rows['Made as'], 'From Sphere 2 (its centre) through Sphere 1 (its centre)');
+    const span = EXAMPLE.head.centre.map((v, i) => v - EXAMPLE.condyles[0].centre[i]);
+    assert.ok(Math.abs(Number(p.rows['Distance between the points']) - Math.hypot(...span)) < 0.002);
+    close(vec(p, 'Direction '), unit(span), 1e-4, 'from the condyle up to the head');
+    close(vec(p, 'End 1 '), EXAMPLE.condyles[0].centre, 1e-3, 'starts at the condyle');
+    // Flip: same line, the other way.
+    await page.locator('#prop-flip-line').click();
+    const f = await properties(page);
+    close(vec(f, 'Direction '), unit(span).map((v) => -v), 1e-4, 'flipped');
+    close(vec(f, 'End 1 '), EXAMPLE.head.centre, 1e-3, 'now starts at the head');
+    assert.equal(f.rows['Distance between the points'], p.rows['Distance between the points']);
+  });
+
+  test('a line is selected by clicking it in the 3D view, and goes with what it was made from', async () => {
+    const page = await start();
+    await capSphere(page, EXAMPLE.head.centre, EXAMPLE.head.radius);
+    await capSphere(page, EXAMPLE.condyles[0].centre, EXAMPLE.condyles[0].radius);
+    await page.locator('#prop-make [data-make="line-two-points"]').click();
+    await select(page, 'Sphere 1');
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'line');
+    // Partway along the line, off the mesh's own outline.
+    const mid = EXAMPLE.head.centre.map((v, i) => v + 0.3 * (EXAMPLE.condyles[0].centre[i] - v));
+    await select(page, 'Example femur');
+    await clickAt(page, await onScreen(page, mid));
+    assert.equal((await properties(page)).name, 'Line 1');
+    // Removing the head's region takes its sphere, and the line made from the sphere.
+    await select(page, 'Region 1');
+    await page.locator('#prop-remove').click();
+    assert.deepEqual(await names(page), ['Example femur', 'Curve 1', 'Curve 2', 'Region 2', 'Sphere 2']);
+  });
+
+  test('the centre of the head as a point, drawn through the mesh; the axis of the shaft as a line', async () => {
+    const page = await start();
+    await capSphere(page, EXAMPLE.head.centre, EXAMPLE.head.radius);
+    await page.locator('#prop-make [data-make="point-centre"]').click();
+    let p = await properties(page);
+    assert.equal(p.rows['Made as'], 'Centre of Sphere 1');
+    close(vec(p, ''), EXAMPLE.head.centre, 0.002, 'the head centre');
+    // It is inside the head, but a click on it selects it.
+    await select(page, 'Example femur');
+    await clickAt(page, await onScreen(page, EXAMPLE.head.centre));
+    assert.equal((await properties(page)).name, 'Point 1');
+
+    // A band of the shaft from y = 30 to 70, boxed through the surface seen from +Z; a cylinder; its axis.
+    await page.locator('#view-menu').click();
+    await page.locator('.viewbar [data-view="+z"]').click();
+    const a = await onScreen(page, [EXAMPLE.shaft.point[0] - 9, EXAMPLE.shaft.point[1] + 30, EXAMPLE.shaft.point[2]]);
+    const b = await onScreen(page, [EXAMPLE.shaft.point[0] + 9, EXAMPLE.shaft.point[1] + 70, EXAMPLE.shaft.point[2]]);
+    await page.locator('#box-btn').click();
+    await page.locator('#select-through').check();
+    await page.mouse.move(a.x, a.y);
+    await page.mouse.down();
+    await page.mouse.move(b.x, b.y, { steps: 5 });
+    await page.mouse.up();
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'region');
+    await page.locator('#select-done').click();
+    await page.locator('#prop-make [data-make="cylinder-fit"]').click();
+    await page.locator('#prop-make [data-make="line-axis"]').click();
+    p = await properties(page);
+    assert.equal(p.rows['Made as'], 'Axis of Cylinder 1');
+    close(vec(p, 'Direction ').map(Math.abs), [0, 1, 0], 1e-3, 'up the shaft');
+    const length = Number(p.rows['Length (as the cylinder)']);
+    // The box takes a little more of the far side of the shaft (in perspective, it looks smaller).
+    assert.ok(length > 39 && length < 48, `length ${length}`);
+    await select(page, 'Cylinder 1');
+    assert.equal(Number((await properties(page)).rows.Length), length, 'as long as the cylinder');
+  });
+
+  test('perpendicular to a plane through a point: the distance from the point to the plane', async () => {
+    const page = await start();
+    await capSphere(page, EXAMPLE.head.centre, EXAMPLE.head.radius);
+    await select(page, 'Region 1');
+    await page.locator('#prop-make [data-make="plane-fit"]').click();
+    await choose(page, 'line-perpendicular');
+    assert.match(await strip(page), /Step 2 of 2 \(“Plane 1” taken\)/);
+    await select(page, 'Sphere 1');
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'line');
+    const p = await properties(page);
+    assert.equal(p.rows['Made as'], 'Perpendicular to Plane 1, through Sphere 1 (its centre)');
+    // The cap plane cuts the head about R·cos(cap) out from the centre; its normal points out of the bone.
+    const d = Number(p.rows['Distance from the point to the plane']);
+    assert.ok(d > 8 && d < 11.5, `distance ${d}`);
+    assert.equal(p.rows['Side of the plane'], 'the side away from the normal');
+    close(vec(p, 'Direction '), HOME, 0.02, 'along the plane\'s normal, out of the head');
+    // And the point where that line meets the plane.
+    await choose(page, 'point-line-plane');
+    await select(page, 'Plane 1');
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'point');
+    const q = await properties(page);
+    assert.equal(q.rows['Made as'], 'Where Line 1 meets Plane 1');
+    close(vec(q, ''), EXAMPLE.head.centre.map((v, i) => v + d * HOME[i]), 0.25, 'on the plane, straight out from the centre');
   });
 });

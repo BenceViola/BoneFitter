@@ -13,12 +13,12 @@
 
 import { COMMANDS, INPUTS } from './commands.js';
 
-const KIND_WORDS = { mesh: 'a mesh', group: 'a landmark file', point: 'a point', curve: 'a curve', region: 'a region', sphere: 'a sphere', cylinder: 'a cylinder', plane: 'a plane' };
+const KIND_WORDS = { mesh: 'a mesh', group: 'a landmark file', point: 'a point', line: 'a line', curve: 'a curve', region: 'a region', sphere: 'a sphere', cylinder: 'a cylinder', plane: 'a plane' };
 
 export class CommandRunner extends EventTarget {
-  constructor({ model, regions, fits }) {
+  constructor({ model, regions, fits, constructs }) {
     super();
-    this.ctx = { model, regions, fits };
+    this.ctx = { model, regions, fits, constructs };
     this.model = model;
     this.command = null; // the command that is asking, or null
     this.picked = []; // the inputs given so far
@@ -46,6 +46,7 @@ export class CommandRunner extends EventTarget {
   available(node) {
     if (!node) return [];
     return Object.values(COMMANDS).filter((c) => {
+      if (!c.inputs.length) return false;
       // Where a closed curve could stand for its region, the plane is the one through the curve itself.
       if (c.id === 'plane-fit' && node.kind === 'curve') return false;
       return this._accepts(INPUTS[c.inputs[0]], node) === true;
@@ -55,6 +56,11 @@ export class CommandRunner extends EventTarget {
   start(id) {
     const command = COMMANDS[id];
     if (!command) return { status: 'unknown' };
+    // A command that is a tool of the rail: main.js switches it on.
+    if (command.tool) {
+      this.cancel();
+      return { status: 'tool', tool: command.tool };
+    }
     const was = this.active;
     this.command = command;
     this.picked = [];
@@ -80,7 +86,7 @@ export class CommandRunner extends EventTarget {
   // input being asked for, else the first (so the prompt can say why not).
   prefer(ids) {
     if (this.active) {
-      const good = ids.find((id) => this._accepts(this._input, this.model.get(id)) === true);
+      const good = ids.find((id) => !this.picked.some((n) => n.id === id) && this._accepts(this._input, this.model.get(id)) === true);
       if (good) return good;
     }
     return ids[0] ?? null;
@@ -90,6 +96,11 @@ export class CommandRunner extends EventTarget {
     if (!this.active) return { status: 'off' };
     const node = this.model.get(nodeId);
     if (!node) return { status: 'rejected' };
+    if (this.picked.some((n) => n.id === nodeId)) {
+      this.note = `That is “${node.name}” again. Click ${this._input.ask}, a different one.`;
+      this._changed();
+      return { status: 'rejected' };
+    }
     const verdict = this._accepts(this._input, node);
     if (verdict === true) return this._take(node);
     const why = typeof verdict === 'string' ? verdict : `“${node.name}” is ${KIND_WORDS[node.kind] ?? 'something else'}.`;
@@ -130,7 +141,8 @@ export class CommandRunner extends EventTarget {
     const of = c.inputs.length;
     const step = this.picked.length + 1;
     const hint = `Click ${this._input.ask}, in the 3D view or in the Objects list. Esc cancels.`;
-    return { active: true, command: c.id, title: c.heading, hint: of > 1 ? `Step ${step} of ${of}. ${hint}` : hint, note: this.note, step, of };
+    const so = this.picked.length ? ` (${this.picked.map((n) => `“${n.name}”`).join(', ')} taken)` : '';
+    return { active: true, command: c.id, title: c.heading, hint: of > 1 ? `Step ${step} of ${of}${so}. ${hint}` : hint, note: this.note, step, of };
   }
 
   _changed() {

@@ -13,6 +13,10 @@
 //
 // A region is drawn as a see-through tint: a copy of just its triangles,
 // laid over the surface. Its edge is therefore exactly the region's edge.
+//
+// A point made from other objects (a sphere's centre, say) and a line are
+// drawn through the mesh, like fitted shapes, because they usually lie
+// inside the bone. A line has an arrowhead at the end its direction points to.
 
 import * as THREE from 'three';
 import { LineSegments2 } from 'three/addons/lines/LineSegments2.js';
@@ -20,8 +24,10 @@ import { LineSegmentsGeometry } from 'three/addons/lines/LineSegmentsGeometry.js
 import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { BONE, displayGeometry } from './viewer.js';
 import { FIT_KINDS } from './fit-engine.js';
+import { isConstructed } from './construction-engine.js';
 
 const POINT_COLORS = { placed: 0x2f63e0, estimated: 0xd98a00 };
+const MADE_COLOR = 0x7c3aed; // points and lines made from other objects
 const CURVE_COLOR = 0x0e9fc7;
 const DERIVED = 0x9cc3d8; // a mesh made from a region
 const REGION_COLOR = 0x0e9fc7;
@@ -45,6 +51,8 @@ export class SceneView {
     this.root = new THREE.Group();
     viewer.scene.add(this.root);
     this.pointGeometry = new THREE.SphereGeometry(1, 20, 14);
+    // An arrowhead for lines: a cone 4 long, its tip at the origin, pointing up Y.
+    this.arrowGeometry = new THREE.ConeGeometry(1.4, 4, 16).translate(0, -2, 0);
     this.handleGeometry = new THREE.OctahedronGeometry(1);
     this.handleMaterial = new THREE.MeshStandardMaterial({ color: HANDLE_COLOR, roughness: 0.5, emissive: HANDLE_COLOR, emissiveIntensity: 0.25 });
     this.raycaster = new THREE.Raycaster();
@@ -120,10 +128,38 @@ export class SceneView {
     this.raycaster.ray.copy(ray);
     const hit = this.raycaster.intersectObjects(markers, false)[0];
     if (!hit) return null;
+    // A made point is drawn through the mesh, so nothing hides it.
+    if (hit.object.userData.through) return hit.object.name;
     const surface = this.picker.surfaceDistance(ray);
     const radius = hit.object.scale.x;
     if (surface !== null && surface < hit.distance - 2 * radius) return null;
     return hit.object.name;
+  }
+
+  // The line whose drawn stretch passes under a screen position (within a
+  // few pixels). Lines are drawn through the mesh, so nothing hides them.
+  lineAt(clientX, clientY) {
+    const rect = this.viewer.renderer.domElement.getBoundingClientRect();
+    this.root.updateMatrixWorld(true);
+    const toScreen = (p, obj) => {
+      const v = new THREE.Vector3(...p).applyMatrix4(obj.matrixWorld).project(this.viewer.camera);
+      return [rect.left + ((v.x + 1) / 2) * rect.width, rect.top + ((1 - v.y) / 2) * rect.height, v.z];
+    };
+    let best = null;
+    for (const [id, obj] of this.objects) {
+      if (!obj.userData.line || !obj.visible || !this.model.isShown(id)) continue;
+      const node = this.model.get(id);
+      if (!node.ends) continue;
+      const [a, b] = node.ends.map((p) => toScreen(p, obj));
+      if (a[2] > 1 || b[2] > 1) continue;
+      const dx = b[0] - a[0];
+      const dy = b[1] - a[1];
+      const len2 = dx * dx + dy * dy;
+      const u = len2 > 0 ? Math.min(1, Math.max(0, ((clientX - a[0]) * dx + (clientY - a[1]) * dy) / len2)) : 0;
+      const d = Math.hypot(clientX - (a[0] + u * dx), clientY - (a[1] + u * dy));
+      if (d <= CURVE_REACH && (!best || d < best.d)) best = { id, d };
+    }
+    return best ? best.id : null;
   }
 
   // The region whose triangles are under a screen position; where regions
@@ -244,6 +280,8 @@ export class SceneView {
         if (node?.kind === 'curve') this._drawCurve(node);
         else if (node?.kind === 'region') this._drawRegion(node);
         else if (FIT_KINDS.has(node?.kind)) this._drawFit(node);
+        else if (node?.kind === 'line') this._drawLine(node);
+        else if (node?.kind === 'point') this._drawPoint(node);
       }
     }
     if (kind === 'select' || kind === 'remove' || kind === 'add') this._showSelection();
@@ -252,12 +290,20 @@ export class SceneView {
   _build(node) {
     const parent = this.objects.get(node.parent) || this.root;
     let obj;
-    if (node.kind === 'point' && Array.isArray(node.position)) {
-      const color = POINT_COLORS[node.status] ?? POINT_COLORS.placed;
-      obj = new THREE.Mesh(this.pointGeometry, new THREE.MeshStandardMaterial({ color, roughness: 0.5 }));
-      obj.position.fromArray(node.position);
+    if (node.kind === 'point' && (Array.isArray(node.position) || node.method)) {
+      // A made point lies inside the bone more often than not: drawn through the mesh.
+      const through = isConstructed(node);
+      const color = through ? MADE_COLOR : (POINT_COLORS[node.status] ?? POINT_COLORS.placed);
+      const material = through
+        ? new THREE.MeshBasicMaterial({ color, depthTest: false, transparent: true, opacity: 0.9 })
+        : new THREE.MeshStandardMaterial({ color, roughness: 0.5 });
+      obj = new THREE.Mesh(this.pointGeometry, material);
+      if (through) obj.renderOrder = 5;
       obj.userData.marker = true;
+      obj.userData.through = through;
       obj.userData.color = color;
+    } else if (node.kind === 'line') {
+      obj = this._buildLine();
     } else if (node.kind === 'curve') {
       obj = new THREE.Group();
       obj.userData.curve = true;
@@ -296,6 +342,58 @@ export class SceneView {
     if (node.kind === 'curve') this._drawCurve(node);
     if (node.kind === 'region') this._drawRegion(node);
     if (FIT_KINDS.has(node.kind)) this._drawFit(node);
+    if (node.kind === 'line') this._drawLine(node);
+    if (obj.userData.marker) this._drawPoint(node);
+  }
+
+  // A point's marker at its position; hidden while it has none (a made
+  // point whose inputs give no result).
+  _drawPoint(node) {
+    const obj = this.objects.get(node.id);
+    if (!obj?.userData.marker) return;
+    const ok = Array.isArray(node.position);
+    if (ok) obj.position.fromArray(node.position);
+    obj.userData.empty = !ok;
+    obj.visible = node.visible && ok;
+  }
+
+  // A line: its drawn stretch, and an arrowhead at the end its direction points to.
+  _buildLine() {
+    const obj = new THREE.Group();
+    obj.userData.line = true;
+    const stroke = new LineSegments2(
+      new LineSegmentsGeometry().setPositions([0, 0, 0, 0, 1, 0]),
+      new LineMaterial({ color: MADE_COLOR, linewidth: 2, worldUnits: false, transparent: true, opacity: 0.9, depthTest: false })
+    );
+    stroke.name = 'stroke';
+    stroke.renderOrder = 4;
+    const head = new THREE.Mesh(this.arrowGeometry, new THREE.MeshBasicMaterial({ color: MADE_COLOR, depthTest: false }));
+    head.name = 'head';
+    head.renderOrder = 5;
+    obj.add(stroke, head);
+    return obj;
+  }
+
+  _drawLine(node) {
+    const obj = this.objects.get(node.id);
+    if (!obj) return;
+    const ok = !node.error && Array.isArray(node.ends);
+    obj.userData.empty = !ok;
+    obj.visible = node.visible && ok;
+    if (!ok) return;
+    const [a, b] = node.ends;
+    const stroke = obj.getObjectByName('stroke');
+    stroke.geometry.dispose();
+    stroke.geometry = new LineSegmentsGeometry().setPositions([...a, ...b]);
+    const head = obj.getObjectByName('head');
+    head.position.fromArray(b);
+    head.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), new THREE.Vector3(...node.direction));
+    const on = node.id === this.model.selectedId;
+    const color = on ? SELECTED : MADE_COLOR;
+    stroke.material.color.setHex(color);
+    stroke.material.linewidth = on ? 3 : 2;
+    head.material.color.setHex(color);
+    this._sizeMarkers();
   }
 
   // A fitted primitive: an outline (and, for a plane, a faint fill) and a
@@ -444,6 +542,11 @@ export class SceneView {
       const line = obj.getObjectByName('line');
       line.geometry.dispose();
       line.material.dispose();
+    } else if (obj.userData.line) {
+      const stroke = obj.getObjectByName('stroke');
+      stroke.geometry.dispose();
+      stroke.material.dispose();
+      obj.getObjectByName('head').material.dispose();
     } else if (obj.userData.region) {
       obj.geometry.dispose();
       obj.material.dispose();
@@ -472,6 +575,7 @@ export class SceneView {
       if (obj.userData.marker) obj.scale.setScalar(id === this._selected ? r * 1.5 : r);
       else if (obj.userData.curve) this._sizeHandles(obj.getObjectByName('handles'));
       else if (obj.userData.fit) obj.getObjectByName('centre').scale.setScalar(id === this._selected ? r * 1.2 : r * 0.8);
+      else if (obj.userData.line) obj.getObjectByName('head').scale.setScalar(id === this._selected ? r * 1.8 : r * 1.4);
     }
   }
 
@@ -490,6 +594,7 @@ export class SceneView {
       if (obj.userData.curve) this._drawCurve(this.model.get(id));
       if (obj.userData.region) this._drawRegion(this.model.get(id));
       if (obj.userData.fit) this._drawFit(this.model.get(id));
+      if (obj.userData.line) this._drawLine(this.model.get(id));
       const surface = obj.getObjectByName('surface');
       if (surface) surface.material.emissive.setHex(on ? MESH_GLOW : 0x000000);
     }

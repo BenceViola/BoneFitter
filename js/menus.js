@@ -1,7 +1,11 @@
 // The menus above the 3D view: one per kind of object, each listing the
 // ways to make it (commands.js). Choosing one calls `run(commandId)`.
+// `bar` is the whole toolbar: other menus written into the page there (View)
+// open, close and walk with the keyboard the same way.
 
 const ICONS = {
+  point: '<circle cx="8" cy="8" r="2.6" fill="currentColor" stroke="none"/><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3"/>',
+  line: '<path d="M2.5 13.5 13.5 2.5M9.5 2.5h4v4"/>',
   region: '<path d="M3 6c1-3 6-4 9-2s2 7-1 8-9-2-8-6z"/>',
   sphere: '<circle cx="8" cy="8" r="6"/><ellipse cx="8" cy="8" rx="6" ry="2.2"/>',
   cylinder: '<ellipse cx="8" cy="3.5" rx="4.5" ry="1.8"/><path d="M3.5 3.5v9c0 1 2 1.8 4.5 1.8s4.5-.8 4.5-1.8v-9"/>',
@@ -9,7 +13,7 @@ const ICONS = {
 };
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 
-export function setupMenus(el, menus, run) {
+export function setupMenus(bar, el, menus, run) {
   el.innerHTML = menus
     .map(
       (m) => `
@@ -25,7 +29,7 @@ export function setupMenus(el, menus, run) {
     )
     .join('');
 
-  const openButton = () => el.querySelector('.menu-btn[aria-expanded="true"]');
+  const openButton = () => bar.querySelector('.menu-btn[aria-expanded="true"]');
 
   function close(refocus = false) {
     const btn = openButton();
@@ -42,12 +46,17 @@ export function setupMenus(el, menus, run) {
     if (focusFirst) btn.nextElementSibling.querySelector('button')?.focus();
   }
 
-  el.addEventListener('click', (e) => {
+  bar.addEventListener('click', (e) => {
     const item = e.target.closest('[data-command]');
     if (item) {
       close();
       item.blur();
       run(item.dataset.command);
+      return;
+    }
+    // Any other button in an open menu (a view) does its own thing, then the menu closes.
+    if (e.target.closest('.menu-list button')) {
+      close();
       return;
     }
     const btn = e.target.closest('.menu-btn');
@@ -57,7 +66,7 @@ export function setupMenus(el, menus, run) {
   });
 
   // Esc and a click anywhere else close the menu; the arrow keys walk through it.
-  el.addEventListener('keydown', (e) => {
+  bar.addEventListener('keydown', (e) => {
     const btn = openButton();
     if (!btn) return;
     const items = [...btn.nextElementSibling.querySelectorAll('button')];
@@ -75,7 +84,7 @@ export function setupMenus(el, menus, run) {
     e.stopPropagation(); // Esc here closes the menu and nothing else
   });
   document.addEventListener('pointerdown', (e) => {
-    if (!el.contains(e.target)) close();
+    if (!bar.contains(e.target)) close();
   }, true);
   window.addEventListener('blur', () => close());
 

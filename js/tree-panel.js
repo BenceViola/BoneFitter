@@ -7,6 +7,7 @@ const ICONS = {
   mesh: '<path d="M8 1.5 14 5v6l-6 3.5L2 11V5z M2 5l6 3.5L14 5 M8 8.5v6"/>',
   group: '<path d="M1.5 4.5h4l1.5 1.5h7.5v7h-13z"/>',
   point: '<circle cx="8" cy="8" r="3" fill="currentColor" stroke="none"/>',
+  line: '<path d="M2.5 13.5 13.5 2.5M9.5 2.5h4v4"/>',
   curve: '<path d="M2 12c2-8 4-8 6-3s4 4 6-5"/>',
   region: '<path d="M3 6c1-3 6-4 9-2s2 7-1 8-9-2-8-6z"/>',
   sphere: '<circle cx="8" cy="8" r="6"/><ellipse cx="8" cy="8" rx="6" ry="2.2"/>',

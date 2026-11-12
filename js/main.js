@@ -16,6 +16,8 @@ import { setupInteraction } from './interaction.js';
 import { RegionEngine } from './region-engine.js';
 import { SelectTool } from './select-tool.js';
 import { FitEngine } from './fit-engine.js';
+import { ConstructionEngine } from './construction-engine.js';
+import { PointTool } from './point-tool.js';
 import { CommandRunner } from './command-runner.js';
 import { MENUS } from './commands.js';
 import { setupMenus } from './menus.js';
@@ -72,7 +74,9 @@ if (webgl) {
   app.regions = new RegionEngine(model, picker, app.engine);
   app.fits = new FitEngine(model, (id) => view.sources.get(id) || null);
   app.select = new SelectTool({ model, picker, view, viewer, regions: app.regions, ui: app });
-  app.commands = new CommandRunner({ model, regions: app.regions, fits: app.fits });
+  app.constructs = new ConstructionEngine(model);
+  app.points = new PointTool({ model, picker, view, constructs: app.constructs });
+  app.commands = new CommandRunner({ model, regions: app.regions, fits: app.fits, constructs: app.constructs });
   setupInteraction({
     stage: $('stage'),
     viewer,
@@ -82,6 +86,7 @@ if (webgl) {
     engine: app.engine,
     regions: app.regions,
     tool: app.tool,
+    points: app.points,
     select: app.select,
     commands: app.commands,
     overlay: $('select-overlay'),
@@ -92,7 +97,10 @@ if (webgl) {
     $(`${mode}-btn`).addEventListener('click', () => {
       // The button of a paused tool takes you back to selecting; otherwise it switches the tool on or off.
       const on = app.select.mode !== mode || app.select.paused;
-      if (on) app.tool.setActive(false);
+      if (on) {
+        app.tool.setActive(false);
+        app.points.setActive(false);
+      }
       app.select.setMode(on ? mode : null);
     });
   }
@@ -101,9 +109,15 @@ if (webgl) {
   $('select-turn').addEventListener('click', () => app.select.togglePause());
   app.tool.addEventListener('change', renderTool);
   $('curve-btn').addEventListener('click', () => {
-    if (!app.tool.active) app.select.setMode(null);
+    if (!app.tool.active) {
+      app.select.setMode(null);
+      app.points.setActive(false);
+    }
     app.tool.setActive(!app.tool.active);
   });
+  app.points.addEventListener('change', renderPoints);
+  $('point-btn').addEventListener('click', () => usePointTool(!app.points.active));
+  $('point-done').addEventListener('click', () => app.points.setActive(false));
   $('curve-finish').addEventListener('click', () => app.tool.finish());
   $('curve-close').addEventListener('click', () => app.tool.close());
   $('curve-undo').addEventListener('click', () => app.tool.undo());
@@ -111,12 +125,13 @@ if (webgl) {
   // The Select button: back to the plain mouse (click selects, drag turns the view).
   $('pointer-btn').addEventListener('click', () => {
     app.tool.setActive(false);
+    app.points.setActive(false);
     app.select.setMode(null);
   });
 
   // Making things: the menus (one per kind of object), the "Make from this"
   // buttons in Properties, and the strip that asks for what a command needs.
-  setupMenus($('menus'), MENUS, run);
+  setupMenus(document.querySelector('.toolbar'), $('menus'), MENUS, run);
   app.run = run;
   app.commands.addEventListener('change', renderPrompt);
   $('prompt-cancel').addEventListener('click', () => app.commands.cancel());
@@ -141,9 +156,33 @@ function run(id) {
   if (r.status === 'asking') {
     // Clicks now pick the object, so the drawing tools step aside.
     tool.setActive(false);
+    app.points.setActive(false);
     app.select.setMode(null);
   }
+  if (r.status === 'tool' && r.tool === 'point') usePointTool(true);
   return r;
+}
+
+// The Point tool on (the others off) or off.
+function usePointTool(on) {
+  if (on) {
+    tool.setActive(false);
+    app.select.setMode(null);
+  }
+  app.points.setActive(on);
+}
+
+// The Point button, and its strip over the 3D view.
+function renderPoints() {
+  const s = app.points.state();
+  renderRail();
+  $('point-btn').setAttribute('aria-pressed', String(s.active));
+  $('stage').classList.toggle('is-placing', s.active);
+  if ($('point-strip').hidden === s.active) {
+    $('point-strip').hidden = !s.active;
+    viewer.resize();
+  }
+  $('point-hint').textContent = s.hint;
 }
 
 function renderPrompt() {
@@ -159,7 +198,7 @@ function renderPrompt() {
 
 // One thing at a time: choosing a drawing tool ends a command that was asking.
 function renderRail() {
-  const on = tool.active || app.select.active;
+  const on = tool.active || app.select.active || app.points.active;
   $('pointer-btn').setAttribute('aria-pressed', String(!on));
   if (on) app.commands.cancel();
 }
@@ -213,6 +252,7 @@ window.addEventListener('keydown', (e) => {
   if (e.key === 'f' || e.key === 'F') viewer?.fit();
   else if (e.key === 'h' || e.key === 'H') viewer?.viewFrom('home');
   else if (e.key === 'Escape' && app.commands?.active) app.commands.cancel();
+  else if (e.key === 'Escape' && app.points?.active) app.points.setActive(false);
   else if (e.key === 'Escape' && app.select?.active) app.select.togglePause();
   else if (tool?.active && curveKey(e)) e.preventDefault();
 });

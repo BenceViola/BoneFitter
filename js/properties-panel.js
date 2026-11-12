@@ -16,7 +16,7 @@ const dir = (n) => Number(n).toFixed(4);
 // Below this cap angle (degrees) a fitted sphere's size is poorly fixed.
 const SHALLOW_CAP = 30;
 
-const KIND = { mesh: 'Mesh', group: 'Landmark file', point: 'Point', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
+const KIND = { mesh: 'Mesh', group: 'Landmark file', point: 'Point', line: 'Line', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
 
 // Why curves give no region, for the person looking at it.
 const REGION_PROBLEMS = {
@@ -75,6 +75,10 @@ export function describe(model, id) {
     rows.push(['Landmarks', missing ? `${points.length - missing} placed, ${missing} missing` : String(points.length)]);
     rows.push(['Coordinates', space]);
     copy = ['id\tname\tstatus\tx\ty\tz', ...points.map(pointLine)].join('\n');
+  } else if (node.kind === 'point' && node.method) {
+    copy = describeMade(model, node, rows, space);
+  } else if (node.kind === 'line') {
+    copy = describeMade(model, node, rows, space);
   } else if (node.kind === 'point') {
     if (node.code) rows.push(['ID', node.code, true]);
     if (node.status) rows.push(['Status', node.status]);
@@ -210,6 +214,76 @@ function describeFit(model, node, rows, space) {
   ].join('\n');
 }
 
+// How a point or line was made, in words.
+function madeAs(model, node) {
+  const name = (i) => {
+    const n = model.get(node.inputs?.[i]);
+    return n ? (n.kind === 'sphere' && node.method !== 'centre' ? `${n.name} (its centre)` : n.name) : '?';
+  };
+  switch (node.method) {
+    case 'surface': return `Clicked on ${model.get(node.parent)?.name ?? 'a mesh'}`;
+    case 'centre': return `Centre of ${name(0)}`;
+    case 'centroid': return `Centroid of ${name(0)}`;
+    case 'midpoint': return `Midway between ${name(0)} and ${name(1)}`;
+    case 'line-plane': return `Where ${name(0)} meets ${name(1)}`;
+    case 'two-points': return `From ${name(0)} through ${name(1)}`;
+    case 'axis': return `Axis of ${name(0)}`;
+    case 'fit-curve': return `Fitted to ${name(0)} (its path)`;
+    case 'perpendicular': return `Perpendicular to ${name(0)}, through ${name(1)}`;
+    case 'planes': return `Where ${name(0)} and ${name(1)} meet`;
+    default: return '?';
+  }
+}
+
+// The rows for a point placed or made here, or a line. Returns the text to copy, or null.
+function describeMade(model, node, rows, space) {
+  rows.push(['Made as', madeAs(model, node)]);
+  if (node.error) {
+    const failing = node.inputs?.map((id) => model.get(id)).find((n) => n && (n.error || n.drawing || (n.kind === 'point' && !n.position)));
+    const problems = {
+      'no-input': 'What it was made from is gone.',
+      input: `“${failing?.name ?? 'What it was made from'}” has no result at the moment, so neither does this.`,
+      parallel: node.kind === 'point' ? 'The line runs along the plane, so it does not pass through it at one point.' : 'The planes are parallel, so they never meet.',
+      same: 'The two points are in the same place, so no single line goes through them.',
+      few: 'The curve is too short to fit a line to.',
+    };
+    rows.push(['Problem', problems[node.error] ?? 'It could not be made.']);
+    return null;
+  }
+  const xyz = (label, v, f = num) => ['x', 'y', 'z'].forEach((axis, i) => rows.push([`${label}${axis}`, f(v[i]), true]));
+  const how = madeAs(model, node);
+  if (node.kind === 'point') {
+    xyz('', node.position);
+    rows.push(['Coordinates', space]);
+    return ['name\tmade_as\tx\ty\tz', [node.name, how, ...node.position].join('\t')].join('\n');
+  }
+  xyz('Point ', node.point);
+  xyz('Direction ', node.direction, dir);
+  const LENGTH = {
+    'two-points': 'Distance between the points',
+    perpendicular: 'Distance from the point to the plane',
+    axis: 'Length (as the cylinder)',
+    'fit-curve': 'Length (the curve along it)',
+  };
+  const ends = node.method !== 'planes';
+  if (LENGTH[node.method]) rows.push([LENGTH[node.method], num(node.length), true]);
+  if (node.method === 'perpendicular') rows.push(['Side of the plane', node.signed >= 0 ? 'the side the normal points to' : 'the side away from the normal']);
+  if (node.method === 'fit-curve') {
+    rows.push(['RMS deviation', num(node.rms), true]);
+    rows.push(['Largest deviation', num(node.maxDeviation), true]);
+  }
+  if (ends) {
+    xyz('End 1 ', node.ends[0]);
+    xyz('End 2 ', node.ends[1]);
+  }
+  rows.push(['Coordinates', space]);
+  if (node.method === 'planes') rows.push(['Note', 'The line goes on without end; it is drawn as far as the larger plane reaches.']);
+  return [
+    'name\tmade_as\tpoint_x\tpoint_y\tpoint_z\tdirection_x\tdirection_y\tdirection_z\tlength\tend1_x\tend1_y\tend1_z\tend2_x\tend2_y\tend2_z',
+    [node.name, how, ...node.point, ...node.direction, ends ? node.length : '', ...(ends ? [...node.ends[0], ...node.ends[1]] : ['', '', '', '', '', ''])].join('\t'),
+  ].join('\n');
+}
+
 // Full precision goes on the clipboard; the panel shows three decimals.
 function pointLine(p) {
   const xyz = p.position ? p.position.join('\t') : 'NA\tNA\tNA';
@@ -259,6 +333,7 @@ export function setupProperties(el, { model, copyText, app }) {
         ${node.kind === 'region' ? '<button type="button" class="btn small" id="prop-flip" title="Take the part on the other side of the boundary instead">Use the other side</button>' : ''}
         ${node.kind === 'plane' && !node.error ? '<button type="button" class="btn small" id="prop-flip-fit" title="Turn the normal the other way; the plane stays where it is">Flip normal</button>' : ''}
         ${node.kind === 'cylinder' && !node.error ? '<button type="button" class="btn small" id="prop-flip-fit" title="Turn the axis direction the other way; the axis stays where it is">Flip direction</button>' : ''}
+        ${node.kind === 'line' && !node.error ? '<button type="button" class="btn small" id="prop-flip-line" title="Turn the direction the other way; the line stays where it is">Flip direction</button>' : ''}
         ${node.kind === 'mesh' ? '<button type="button" class="btn small" id="prop-save-stl" title="Save this mesh as a binary STL file">Save as STL</button><button type="button" class="btn small" id="prop-save-ply" title="Save this mesh as a binary PLY file">Save as PLY</button>' : ''}
         <button type="button" class="btn small" id="prop-remove">Remove</button>
       </div>
@@ -289,6 +364,8 @@ export function setupProperties(el, { model, copyText, app }) {
       await app.saveMesh(id, e.target.id === 'prop-save-stl' ? 'stl' : 'ply');
     } else if (e.target.id === 'prop-flip-fit') {
       app.fits.set(id, { flipped: !model.get(id).flipped });
+    } else if (e.target.id === 'prop-flip-line') {
+      app.constructs.set(id, { flipped: !model.get(id).flipped });
     } else if (e.target.id === 'prop-flip') {
       app.regions.set(id, { flipped: !model.get(id).flipped });
     } else if (e.target.id === 'prop-copy') {

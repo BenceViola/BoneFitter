@@ -23,12 +23,14 @@ describe('the list of commands', () => {
       ['sphere', 'Sphere', ['sphere-fit']],
       ['cylinder', 'Cylinder', ['cylinder-fit']],
       ['plane', 'Plane', ['plane-fit', 'plane-curve']],
+      ['point', 'Point', ['point-surface', 'point-centre', 'point-centroid', 'point-midpoint', 'point-line-plane']],
+      ['line', 'Line', ['line-two-points', 'line-axis', 'line-curve', 'line-perpendicular', 'line-planes']],
     ]);
     for (const m of MENUS) {
       for (const c of m.commands) {
         assert.equal(COMMANDS[c.id], c);
         assert.equal(c.kind, m.kind);
-        assert.ok(c.label && c.title && c.inputs.length >= 1, c.id);
+        assert.ok(c.label && c.title && (c.inputs.length >= 1 || c.tool), c.id);
       }
     }
   });
@@ -192,18 +194,32 @@ describe('picking the input', () => {
 
 describe('what can be made from the selected object', () => {
   const ids = (list) => list.map((c) => c.id);
-  test('a region: sphere, cylinder, plane', () => {
+  test('a region: sphere, cylinder, plane, its centroid', () => {
     const { runner, region } = setup({ region: true });
-    assert.deepEqual(ids(runner.available(region)), ['sphere-fit', 'cylinder-fit', 'plane-fit']);
-    assert.deepEqual(runner.available(region).map((c) => c.short), ['Sphere', 'Cylinder', 'Plane']);
+    assert.deepEqual(ids(runner.available(region)), ['sphere-fit', 'cylinder-fit', 'plane-fit', 'point-centroid']);
+    assert.deepEqual(runner.available(region).map((c) => c.short), ['Sphere', 'Cylinder', 'Plane', 'Centroid point']);
   });
-  test('a closed curve: region, sphere, cylinder, and a plane through the curve itself', () => {
+  test('a sphere: its centre, a midpoint, a line; a point: a midpoint, a line; a plane: lines', () => {
+    const { runner, region, model, fits, constructs } = setup({ region: true });
+    const sphere = fits.create(region.id, 'sphere');
+    assert.deepEqual(runner.available(sphere).map((c) => c.short), ['Centre point', 'Midpoint', 'Line to a point']);
+    const p = constructs.create('point', 'centre', [sphere.id]);
+    assert.deepEqual(ids(runner.available(p)), ['point-midpoint', 'line-two-points']);
+    const plane = fits.create(region.id, 'plane');
+    assert.deepEqual(ids(runner.available(plane)), ['line-perpendicular', 'line-planes']);
+    const l = constructs.create('line', 'perpendicular', [plane.id, p.id]);
+    assert.deepEqual(ids(runner.available(l)), ['point-line-plane']);
+    // A landmark that is missing has nothing to offer.
+    assert.deepEqual(runner.available(model.add('point', { position: null, status: 'missing' })), []);
+  });
+  test('a closed curve: region, sphere, cylinder, a plane and a line through the curve itself, its centroid', () => {
     const { runner, closed } = setup();
-    assert.deepEqual(ids(runner.available(closed)), ['region-loop', 'sphere-fit', 'cylinder-fit', 'plane-curve']);
+    assert.deepEqual(ids(runner.available(closed)), ['region-loop', 'sphere-fit', 'cylinder-fit', 'plane-curve', 'point-centroid', 'line-curve']);
   });
-  test('an open curve: only a plane', () => {
+  test('an open curve: a plane, its centroid, a line', () => {
     const { runner, open } = setup();
-    assert.deepEqual(ids(runner.available(open)), ['plane-curve']);
+    assert.deepEqual(ids(runner.available(open)), ['plane-curve', 'point-centroid', 'line-curve']);
+    assert.deepEqual(runner.available(open).map((c) => c.short), ['Plane', 'Centroid point', 'Line']);
   });
   test('a mesh, a curve being drawn, an empty region, nothing: none', () => {
     const { runner, model, mesh, region, open } = setup({ region: true });
@@ -213,5 +229,74 @@ describe('what can be made from the selected object', () => {
     assert.deepEqual(runner.available(model.get(open.id)), []);
     model.update(region.id, { error: 'small' });
     assert.deepEqual(runner.available(model.get(region.id)), []);
+  });
+});
+
+describe('points and lines from the menus', () => {
+  test('Point ▸ Click on a surface switches on the Point tool; it asks nothing', () => {
+    const { runner } = setup();
+    assert.deepEqual(runner.start('point-surface'), { status: 'tool', tool: 'point' });
+    assert.equal(runner.active, false);
+  });
+
+  test('two inputs: the selected point is the first, the strip asks for the second', () => {
+    const { runner, model, fits, region, constructs } = setup({ region: true });
+    const sphere = fits.create(region.id, 'sphere');
+    const p = constructs.placePoint({ id: model.meshes()[0].id, position: [0, 0, 10], anchor: { face: 0 } });
+    model.select(sphere.id);
+    assert.equal(runner.start('line-two-points').status, 'asking');
+    const s = runner.state();
+    assert.equal(s.title, 'Line: through two points');
+    assert.equal(s.step, 2);
+    assert.match(s.hint, /^Step 2 of 2 \(“Sphere 1” taken\)\. Click a point or a sphere \(its centre\)/);
+    // The same sphere again is not taken.
+    assert.equal(runner.offer(sphere.id).status, 'rejected');
+    assert.match(runner.state().note, /^That is “Sphere 1” again\./);
+    const r = runner.offer(p.id);
+    assert.equal(r.status, 'done');
+    assert.deepEqual(r.node.inputs, [sphere.id, p.id]);
+    assert.equal(model.selectedId, r.node.id);
+  });
+
+  test('nothing selected: both inputs are asked for in turn', () => {
+    const { runner, region, fits, mesh } = setup({ region: true });
+    const plane = fits.create(region.id, 'plane');
+    const sphere = fits.create(region.id, 'sphere');
+    runner.model.select(mesh.id);
+    runner.start('line-perpendicular');
+    assert.match(runner.state().hint, /^Step 1 of 2\. Click a plane/);
+    assert.equal(runner.offer(sphere.id).status, 'rejected');
+    assert.match(runner.state().note, /“Sphere 1” is a sphere\. Click a plane\./);
+    runner.offer(plane.id);
+    assert.match(runner.state().hint, /^Step 2 of 2 \(“Plane 1” taken\)\. Click a point or a sphere/);
+    const r = runner.offer(sphere.id);
+    assert.equal(r.node.kind, 'line');
+    assert.equal(r.node.method, 'perpendicular');
+  });
+
+  test('a missing landmark is not a point to build on', () => {
+    const { runner, model, mesh, region, fits } = setup({ region: true });
+    fits.create(region.id, 'sphere');
+    const lm = model.add('point', { parent: mesh.id, name: 'Nasion', position: null, status: 'missing' });
+    runner.start('point-midpoint');
+    runner.offer(lm.id);
+    assert.match(runner.state().note, /“Nasion” has no position: it is a missing landmark\./);
+  });
+
+  test('with no sphere, no plane or no line yet, it says which to make first', () => {
+    const { runner } = setup({ region: true });
+    assert.match(runner.start('point-centre').message, /no sphere yet/);
+    assert.match(runner.start('line-perpendicular').message, /no plane yet/);
+    assert.match(runner.start('point-line-plane').message, /no line yet/);
+    assert.match(runner.start('line-two-points').message, /no point yet/);
+  });
+
+  test('prefer() never offers the first input again', () => {
+    const { runner, model, region, fits } = setup({ region: true });
+    const a = fits.create(region.id, 'sphere');
+    const b = runner.ctx.constructs.create('point', 'centre', [a.id]);
+    model.select(a.id);
+    runner.start('point-midpoint');
+    assert.equal(runner.prefer([a.id, b.id]), b.id);
   });
 });

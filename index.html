@@ -366,7 +366,14 @@
     background: var(--accent-soft);
     font-size: 13px;
   }
-  .tool-strip #tool-hint, .tool-strip #prompt-text { flex: 1 1 260px; }
+  .tool-strip #tool-hint, .tool-strip #prompt-text, .tool-strip #point-hint { flex: 1 1 260px; }
+  .stage.is-placing canvas { cursor: crosshair; }
+  /* The View menu: the axis views two by two, then Fit. */
+  .menu-list.view-list { left: auto; right: 0; min-width: 0; }
+  .view-list .viewbar { display: grid; grid-template-columns: repeat(2, 1fr); gap: 2px; border: 0; padding: 0; }
+  .view-list .viewbar button { min-width: 64px; }
+  .view-list .viewbar .sep { display: none; }
+  .view-list .viewbar .fit { grid-column: 1 / -1; white-space: nowrap; }
   .stage.is-picking canvas { cursor: pointer; }
   .props-make { padding: 10px 16px 0 max(16px, env(safe-area-inset-left, 0px)); }
   .props-make .props-actions { padding: 4px 0 0; }
@@ -447,7 +454,7 @@
 <div class="app">
   <aside class="panel">
     <header class="brand">
-      <h1>BoneFitter <span class="ver">v0.9</span></h1>
+      <h1>BoneFitter <span class="ver">v0.10</span></h1>
     </header>
 
     <div id="message" class="message" role="alert" hidden></div>
@@ -469,6 +476,12 @@
       <label for="file-input" class="btn primary" title="Open meshes (STL, PLY) and landmark files (.lmk.json)">Open…</label>
       <div class="menus" id="menus"></div>
       <span class="spacer"></span>
+      <div class="menu">
+        <button type="button" class="btn tool menu-btn" id="view-menu" aria-haspopup="menu" aria-expanded="false" title="Look along an axis, or fit everything in view">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>View
+          <svg class="icon caret" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5"/></svg>
+        </button>
+        <div class="menu-list view-list" role="menu" aria-label="View" hidden>
       <div class="viewbar" role="group" aria-label="View along the axes">
         <button type="button" data-view="+x" title="View from +X">+X</button>
         <button type="button" data-view="-x" title="View from −X">−X</button>
@@ -477,7 +490,9 @@
         <button type="button" data-view="+z" title="View from +Z">+Z</button>
         <button type="button" data-view="-z" title="View from −Z">−Z</button>
         <span class="sep" aria-hidden="true"></span>
-        <button type="button" class="fit" id="fit-btn" title="Fit everything in the view (F)">Fit</button>
+        <button type="button" class="fit" id="fit-btn" title="Fit everything in the view (F)">Fit everything in view</button>
+      </div>
+        </div>
       </div>
     </div>
 
@@ -488,6 +503,13 @@
         <button type="button" class="btn small" id="curve-close" title="Join the last point to the first (C)">Close loop</button>
         <button type="button" class="btn small" id="curve-undo" title="Take the last point off again (Backspace)">Undo point</button>
         <button type="button" class="btn small" id="curve-cancel" title="Remove the curve being drawn (Esc)">Cancel</button>
+      </span>
+    </div>
+
+    <div class="tool-strip" id="point-strip" role="group" aria-label="Point tool" hidden>
+      <span id="point-hint" aria-live="polite"></span>
+      <span class="tool-buttons">
+        <button type="button" class="btn small" id="point-done" title="Stop placing points (Esc)">Done</button>
       </span>
     </div>
 
@@ -514,6 +536,9 @@
       </button>
       <button type="button" class="rail-btn" id="curve-btn" aria-pressed="false" title="Curve: draw a curve on a mesh by clicking points on it">
         <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12c2-8 4-8 6-3s4 4 6-5"/></svg>Curve
+      </button>
+      <button type="button" class="rail-btn" id="point-btn" aria-pressed="false" title="Point: place points by clicking on a mesh">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="2.6" fill="currentColor" stroke="none"/><path d="M8 1.5v3M8 11.5v3M1.5 8h3M11.5 8h3"/></svg>Point
       </button>
       <button type="button" class="rail-btn" id="lasso-btn" aria-pressed="false" title="Lasso: select part of a mesh by drawing round it">
         <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5c3.6 0 6.5 1.8 6.5 4s-2.9 4-6.5 4c-1 0-2-.1-2.8-.4M3 8.6C2 7.9 1.5 7.2 1.5 6.5c0-2.2 2.9-4 6.5-4"/><path d="M4.5 9.5c-1.2.6-1.5 2-.6 3 .7.7 1.8.6 2.4 0"/></svg>Lasso
