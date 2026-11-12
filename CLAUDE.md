@@ -2,7 +2,7 @@
 
 Browser app for fitting geometric primitives (lines, planes, spheres, cylinders) to STL/PLY meshes of bones, to quantify structures such as epiphyses and joint surfaces. Sister app of Landmarker3D and landmarker2D: same stack, same look, opened from GitHub Pages, nothing installed, no data leaves the computer. The owner is a morphometrician, not a web developer: explain changes in plain terms.
 
-**State (v0.8):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose), and regions can also be selected on the screen with Lasso or Box; spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path; a region can be made into a mesh of its own; every mesh shows its surface area and can be saved as STL or PLY. Lines, constructing, measuring, moving meshes and saving are not built yet.
+**State (v0.9):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose), and regions can also be selected on the screen with Lasso or Box; spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path; a region can be made into a mesh of its own; every mesh shows its surface area and can be saved as STL or PLY. Things are made from menus (one per kind of object) or from the selected object's Properties; mouse tools sit on a rail beside the 3D view. Lines, constructing, measuring, moving meshes and saving are not built yet.
 
 ## Ground rules (do not break these)
 
@@ -20,8 +20,8 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | File | Role |
 |---|---|
 | `index.html` | Page, styles (colour tokens, light and dark), import map |
-| `js/main.js` | Wiring: viewer, panels, toolbar and tool buttons, keyboard, drag and drop, messages |
-| `js/interaction.js` | Mouse and touch in the 3D view: click to select (or to the tool in use), dragging a curve's handle, drawing a lasso or box outline |
+| `js/main.js` | Wiring: viewer, panels, menus, tool rail, the strips of the tool or command in use, keyboard, drag and drop, messages |
+| `js/interaction.js` | Mouse and touch in the 3D view: click to select (or to the tool in use, or the object a command asks for), dragging a curve's handle, drawing a lasso or box outline |
 | `js/scene-model.js` | The object tree: nodes (`mesh`, `group`, `point`, `curve`, `region`, `sphere`, `cylinder`, `plane`), attaching, hiding, removing, updating, selecting. No three.js |
 | `js/scene-view.js` | Draws the tree: one three.js object per node, nested as in the tree; markers, curve lines and handles, region tints, fitted primitives (outline, a faint fill for planes, and a centre mark, all drawn through the mesh); what is under the cursor (`pointAt`, `fitAt`, `curveAt`, `handleAt`, `regionAt`); the box the camera frames |
 | `js/viewer.js` | three.js scene, camera, lights, framing; `displayGeometry` (the drawn copy of a mesh) |
@@ -43,6 +43,9 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `js/selection.js` | Faces inside a screen outline (lasso or box), visible or through; combining face lists, the other faces, area and centroid. No page |
 | `js/select-tool.js` | The Lasso and Box tools as a state machine (`setMode`, `setThrough`, `apply(shape, 'new' / 'add' / 'remove')`); no mouse, so it is unit-tested |
 | `js/curve-tool.js` | The Curve tool as a state machine (`click`, `finish`, `close`, `undo`, `cancel`); no page or mouse, so it is unit-tested |
+| `js/commands.js` | The ways to make each kind of object (`MENUS`, `COMMANDS`): what each needs (`inputs`, from `INPUTS`) and how it is made (`run`). No page |
+| `js/command-runner.js` | Runs a command: takes the selected object when it suits, otherwise asks for each input in turn (`start`, `offer`, `prefer`, `cancel`, `available(node)`); no page or mouse, so it is unit-tested |
+| `js/menus.js` | The menus above the 3D view, built from `MENUS` |
 | `js/sample.js` | The example mesh shown at start: a toy femur of exact shapes, with its true measurements in `EXAMPLE` |
 
 All changes to the tree go through `SceneModel`, which fires a `change` event (`{ kind, ids, removed }`, kinds `add`, `remove`, `rename`, `visible`, `update`, `select`) that the 3D view and both panels listen to. `window.__bf` exposes the app for the browser tests.
@@ -65,7 +68,7 @@ This is the pattern for everything that depends on something else (curve → reg
 
 ## Deployment
 
-GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.8`) shows which version is live; raise it with each feature that goes live.
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.9`) shows which version is live; raise it with each feature that goes live.
 
 ## Writing for the UI
 
@@ -74,7 +77,7 @@ Short, plain sentences from the user's side of the screen. Errors say what went 
 ## Decided (by the owner)
 
 - Same stack as the landmarking apps: three.js, plain JS, GitHub Pages. A separate repository, not a fork of Landmarker3D.
-- Layout: object tree on the left showing all meshes and primitives; on the right a toolbar across the top and the 3D view under it.
+- Layout: object tree on the left showing all meshes and primitives; on the right a toolbar across the top and the 3D view under it. Since v0.9 the toolbar holds menus and the mouse tools are on a rail (see "How making things works").
 - Primitives are lines, planes, spheres and cylinders. A primitive is either **attached to a mesh** (it moves with the mesh) or **global** (in the scene's coordinate system).
 - Every parameter of a primitive must be readable and exportable: the points a plane goes through and its normal, the centre and radius of a sphere, and so on.
 - Primitives can also be **constructed** from other primitives, especially points, lines and planes.
@@ -104,7 +107,7 @@ Raised in the design discussion; check with the owner before building on any of 
 
 ## How regions work (built in v0.3 as proposed to the owner)
 
-- A region is made from the selected closed curve with the Region button and hangs under the curve's mesh. It corresponds to the landmark format's reserved `surfaces` entry with `boundary` = curve ids.
+- A region is made from a closed curve (Region ▸ Inside a closed curve) and hangs under the curve's mesh. It corresponds to the landmark format's reserved `surfaces` entry with `boundary` = curve ids.
 - One curve: the smaller of the two parts it divides the surface into is the inside. "Use the other side" (`flipped`) takes everything else; the choice is stored.
 - Several curves (up to 8): the region is the part of the surface that touches all of them, such as the ring between an outer and an inner loop (an articular surface minus the fovea) or the band between two rings (a shaft segment).
 - No region, with the reason shown in Properties and a mark in the tree, when a curve crosses itself, does not divide the surface (a ring round a handle, a surface with holes), is no bigger than a few triangles, or jumps between separate pieces of the mesh.
@@ -113,7 +116,7 @@ Raised in the design discussion; check with the owner before building on any of 
 
 ## How sphere fitting works (built in v0.4)
 
-- Sphere button: fits to the selected region; with a closed curve selected, uses its single-boundary region or makes one first.
+- Sphere ▸ Fit to a region: fits to a region; given a closed curve, uses its single-boundary region or makes one first.
 - The data are the corners of the region's triangles, each weighted by a third of its triangle's area (corners are the measured points; flat triangles cut inside a curved surface; weighting by area makes uneven meshing not matter).
 - Geometric least squares: algebraic (Kåsa) fit as the start, then Levenberg–Marquardt on the distances, computed relative to the patch's mean and scaled, so far-off scan coordinates lose no precision.
 - Reported: centre, radius, diameter, RMS and largest deviation, coverage (solid angle of the region seen from the centre, as % of the sphere and as the equivalent cap angle), triangles. Below a 30° cap, Properties note that the radius is less certain.
@@ -123,22 +126,33 @@ Raised in the design discussion; check with the owner before building on any of 
 
 ## How planes and cylinders work (built in v0.5)
 
-- Cylinder button: like Sphere (a region, or a closed curve's region). Plane button: a region, or the path of the selected curve (open or closed), for rims and margins.
+- Cylinder: like Sphere (a region, or a closed curve's region). Plane: Fit to a region (a region only), or Fit to a curve: the path of a curve (open or closed), for rims and margins.
 - Plane: least-squares (smallest eigenvector of the area- or length-weighted covariance). From a region the normal faces the way the triangles face (out of the bone); from a closed curve it follows the loop (right-hand rule); otherwise its largest component is positive. Reported: point (the weighted mean, on the plane), unit normal, equation n·x = d, RMS and largest deviation, triangles or path length.
 - Cylinder: the starting axis is the direction the area-weighted surface normals spread least in; the circle across it is fitted algebraically; then axis point, direction and radius are refined together (Levenberg–Marquardt, analytic Jacobian). Reported: axis point (nearest the data's mean), unit direction (largest component positive), radius, diameter, the two axis ends the data span and the length between them, RMS and largest deviation, arc covered round the axis (from the triangles' angular spans, in 5° steps). Notes: the normals also spread along the axis (`spread` > 0.3: a round surface, axis poorly fixed), or the arc is under 90°.
 - Flip normal / Flip direction (`flipped`, stored): the plane or axis stays put, only its sign changes (d and the ends swap with it). This is the first part of the proposed "stored sign".
 
 ## Meshes from regions, and saving meshes (built in v0.6, asked for by the owner)
 
-- "New mesh from region" (region Properties) makes a new top-level mesh of the region's triangles. The original is not changed. The new mesh is built by writing the triangles as a binary STL and reading that back, so it has the SHA-256 of the file "Save as STL" writes and that file is recognised when opened again.
+- "New mesh" (region Properties, under Make from this) makes a new top-level mesh of the region's triangles. The original is not changed. The new mesh is built by writing the triangles as a binary STL and reading that back, so it has the SHA-256 of the file "Save as STL" writes and that file is recognised when opened again.
 - It is a copy (snapshot): it keeps `madeFrom` (mesh, region, boundary curve names, side) for the record but does not follow later changes to the region. Its coordinates are the original file's (`coordsFile`), and it can have curves, regions and fits of its own. Made from the example, it goes with the example.
 - It is drawn in its own colour and slightly in front of the original it overlaps; hide the original to see it alone.
 - Every mesh shows its surface area (sum of triangle areas, `area` from `meshFields`) and has a row to copy.
 - Save as STL (binary, triangles with their own corners) and Save as PLY (binary little-endian, corners at exactly the same position joined into one vertex) for any mesh, through `file-io.js`. Vertex colours are not carried over.
 
+## How making things works (built in v0.9; layout chosen by the owner)
+
+The one-row toolbar had run out of room. The owner chose a combination of two routes to the same commands, plus a rail:
+
+- **Menus, starting from what you want to make.** One menu per kind of object above the 3D view (Region, Sphere, Cylinder, Plane now; Point, Line, Coordinate system, then Measure and Orient later), each listing the ways to make it (`MENUS` in `commands.js`). The owner's example: "a sphere by defining a point and a radius" must be startable without first knowing what to select.
+- **A prompt strip, asking for inputs one at a time.** If the selected object suits the command's first input it is taken; when every input is there the object is made and selected. Otherwise the strip (`#prompt-strip`) says what to click, and the next object clicked in the 3D view (`interaction.js`) or in the Objects list (`main.js`) is selected and then offered to the command (`CommandRunner.offer`); offering is done after the click's own selecting, never inside a `select` event. A click in the 3D view takes, of the things under it, the first the command can use (`prefer`). An unsuitable pick leaves the strip asking, with the reason. Esc, Cancel, or choosing a drawing tool ends it. When nothing in the scene could be used, there is no prompt: a note says what to make first. The owner chose this "pick the next one" prompt over multi-selection for commands with several inputs.
+- **Properties, starting from what is selected.** "Make from this" lists `available(node)`: the commands whose first input the selected object suits, one click each. For a closed curve the plane offered is the one through the curve itself. "New mesh" (from a region) sits there too.
+- **The rail** beside the 3D view (never over it) holds what changes the mouse: Select, Curve, Lasso, Box (Measure and Move mesh later). One tool at a time; a command that has to ask switches the drawing tool off, one that is made at once leaves it on.
+
+To add a way of making something: add a command to `MENUS` (new input kinds go in `INPUTS`) and an icon in `menus.js` for a new menu. The menus, the prompt and the Properties buttons follow. Inputs that are numbers (a radius) are not built yet: the plan is a box in the prompt strip.
+
 ## Lasso and Box selection (built in v0.7, asked for by the owner)
 
-- Lasso and Box buttons switch a selection tool on (one tool at a time, with Curve). While on, a left-drag draws the outline and the camera doesn't turn (`controls.noRotate`); right-drag pans, scroll zooms. A click (no outline) still selects what is under it.
+- The Lasso and Box buttons on the rail switch a selection tool on (one tool at a time, with Curve). While on, a left-drag draws the outline and the camera doesn't turn (`controls.noRotate`); right-drag pans, scroll zooms. A click (no outline) still selects what is under it.
 - Esc toggles a pause (v0.8, asked for by the owner): paused, the tool stays chosen but a left-drag turns the view (strip turns amber, "Turn view" pressed); Esc again (or the Turn view button, or the tool's own button) goes back to selecting with the same tool. The selected region stays selected, so Shift and Alt carry on adding to it. Done leaves the tool. `SelectTool`: `paused`, `drawing` (= chosen and not paused), `togglePause()`; choosing a tool ends a pause.
 - A triangle is selected when its centre is inside the outline on screen. "Visible surface only" is the default: the centre must be the first surface along the line of sight from the camera (BVH ray test; other meshes in front hide too). "Select through the surface" takes everything inside the outline.
 - Plain drag: a new region on the mesh of the selected object, or the only mesh shown (otherwise the tool asks which). Shift-drag adds to the selected Lasso/Box region, Alt-drag takes away (a Shift-drag with no such region selected makes a new one).
@@ -167,5 +181,7 @@ A BoneFitter template would list steps (select a region, fit a primitive, constr
 - A deviation map on the mesh, and refitting without faces beyond a tolerance (both proposed).
 - On a finished curve: adding or removing single points, opening or closing it again, and choosing straight (`euclidean`) paths. The engine supports all of these; there are no buttons for them yet.
 - Undo and redo.
+- Inputs typed as numbers in the prompt strip, and commands with more than one input (the runner handles several; none exist yet).
+- The view buttons (+X … Fit) are still in the toolbar; fold them into a Views menu when the menus need the room.
 - Opening the curves of a landmark file (read past with a note).
 - A limit or warning strategy for very large scenes beyond the current note at 3 million triangles. Landmarker3D unloads meshes it isn't showing; here every mesh in the scene stays loaded.

@@ -125,7 +125,7 @@
   }
   .objects { flex: 1 1 0; min-height: 120px; display: flex; flex-direction: column; border-top: 1px solid var(--line); }
   .tree-scroll { flex: 1; min-height: 0; overflow-y: auto; padding: 0 8px 12px max(8px, env(safe-area-inset-left, 0px)); }
-  .properties { flex: 0 1 auto; max-height: 50%; overflow-y: auto; border-top: 1px solid var(--line); padding-bottom: 12px; }
+  .properties { flex: 0 1 auto; max-height: 60%; overflow-y: auto; border-top: 1px solid var(--line); padding-bottom: 12px; }
 
   .tree, .tree ul { list-style: none; margin: 0; padding: 0; }
   .tree-row {
@@ -247,6 +247,69 @@
     background: var(--surface);
   }
   .toolbar .spacer { flex: 1; }
+  /* One menu per kind of object, each listing the ways to make it. */
+  .menus { display: flex; flex-wrap: wrap; gap: 6px; }
+  .menu { position: relative; }
+  .menu-btn { gap: 6px; }
+  .menu-btn .caret { width: 10px; height: 10px; margin-left: 1px; color: var(--muted); }
+  .menu-btn[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .menu-list {
+    position: absolute;
+    top: calc(100% + 4px);
+    left: 0;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    min-width: 190px;
+    padding: 4px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: var(--surface);
+    box-shadow: 0 6px 18px rgb(0 0 0 / 0.16);
+  }
+  .menu-list button {
+    padding: 7px 10px;
+    border: 0;
+    border-radius: 4px;
+    background: none;
+    color: var(--fg);
+    font: 500 13px/1.2 var(--font-body);
+    text-align: left;
+    white-space: nowrap;
+    cursor: pointer;
+  }
+  .menu-list button:hover, .menu-list button:focus-visible { background: var(--accent-soft); outline: none; }
+
+  /* The rail: what the mouse does in the 3D view. Beside the view, never over the mesh. */
+  .stage-row { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
+  .rail {
+    flex: none;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 6px 5px 6px 6px;
+    border-right: 1px solid var(--line);
+    background: var(--surface);
+  }
+  .rail-btn {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 3px;
+    width: 48px;
+    padding: 7px 0 5px;
+    border: 1px solid transparent;
+    border-radius: var(--radius);
+    background: none;
+    color: var(--fg);
+    font: 500 10.5px/1 var(--font-body);
+    cursor: pointer;
+  }
+  .rail-btn .icon { width: 18px; height: 18px; }
+  .rail-btn:hover { background: var(--accent-soft); }
+  .rail-btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
+  .rail-btn:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
   .viewbar { display: flex; gap: 2px; padding: 2px; border: 1px solid var(--line); border-radius: var(--radius); }
   .viewbar button {
     min-width: 30px;
@@ -303,7 +366,11 @@
     background: var(--accent-soft);
     font-size: 13px;
   }
-  .tool-strip #tool-hint { flex: 1 1 260px; }
+  .tool-strip #tool-hint, .tool-strip #prompt-text { flex: 1 1 260px; }
+  .stage.is-picking canvas { cursor: pointer; }
+  .props-make { padding: 10px 16px 0 max(16px, env(safe-area-inset-left, 0px)); }
+  .props-make .props-actions { padding: 4px 0 0; }
+  .props-make-label { font-size: 12px; color: var(--muted); }
   .tool-buttons { display: flex; flex-wrap: wrap; gap: 6px; }
   .space-note {
     position: absolute;
@@ -380,7 +447,7 @@
 <div class="app">
   <aside class="panel">
     <header class="brand">
-      <h1>BoneFitter <span class="ver">v0.8</span></h1>
+      <h1>BoneFitter <span class="ver">v0.9</span></h1>
     </header>
 
     <div id="message" class="message" role="alert" hidden></div>
@@ -400,27 +467,7 @@
     <div class="toolbar" role="toolbar" aria-label="Tools">
       <input type="file" id="file-input" class="file-input" accept=".stl,.ply,.json" multiple>
       <label for="file-input" class="btn primary" title="Open meshes (STL, PLY) and landmark files (.lmk.json)">Open…</label>
-      <button type="button" class="btn tool" id="curve-btn" aria-pressed="false" title="Draw a curve on a mesh by clicking points on it">
-        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12c2-8 4-8 6-3s4 4 6-5"/></svg>Curve
-      </button>
-      <button type="button" class="btn tool" id="lasso-btn" aria-pressed="false" title="Select part of a mesh by drawing round it">
-        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5c3.6 0 6.5 1.8 6.5 4s-2.9 4-6.5 4c-1 0-2-.1-2.8-.4M3 8.6C2 7.9 1.5 7.2 1.5 6.5c0-2.2 2.9-4 6.5-4"/><path d="M4.5 9.5c-1.2.6-1.5 2-.6 3 .7.7 1.8.6 2.4 0"/></svg>Lasso
-      </button>
-      <button type="button" class="btn tool" id="box-btn" aria-pressed="false" title="Select part of a mesh by dragging a box over it">
-        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" stroke-dasharray="2 1.5"/></svg>Box
-      </button>
-      <button type="button" class="btn tool" id="region-btn" title="Make a region: the part of the mesh that the selected closed curve encloses">
-        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M3 6c1-3 6-4 9-2s2 7-1 8-9-2-8-6z"/></svg>Region
-      </button>
-      <button type="button" class="btn tool" id="sphere-btn" title="Fit a sphere to the selected region (or to the region of the selected closed curve)">
-        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><circle cx="8" cy="8" r="6"/><ellipse cx="8" cy="8" rx="6" ry="2.2"/></svg>Sphere
-      </button>
-      <button type="button" class="btn tool" id="cylinder-btn" title="Fit a cylinder to the selected region (or to the region of the selected closed curve)">
-        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><ellipse cx="8" cy="3.5" rx="4.5" ry="1.8"/><path d="M3.5 3.5v9c0 1 2 1.8 4.5 1.8s4.5-.8 4.5-1.8v-9"/></svg>Cylinder
-      </button>
-      <button type="button" class="btn tool" id="plane-btn" title="Fit a plane to the selected region, or to the path of the selected curve">
-        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 11 5 5h9.5L11 11z"/></svg>Plane
-      </button>
+      <div class="menus" id="menus"></div>
       <span class="spacer"></span>
       <div class="viewbar" role="group" aria-label="View along the axes">
         <button type="button" data-view="+x" title="View from +X">+X</button>
@@ -444,6 +491,13 @@
       </span>
     </div>
 
+    <div class="tool-strip" id="prompt-strip" role="group" aria-label="Making an object" hidden>
+      <span id="prompt-text" aria-live="polite"><strong id="prompt-title"></strong> <span id="prompt-hint"></span></span>
+      <span class="tool-buttons">
+        <button type="button" class="btn small" id="prompt-cancel" title="Stop without making anything (Esc)">Cancel</button>
+      </span>
+    </div>
+
     <div class="tool-strip" id="select-strip" role="group" aria-label="Selection tool" hidden>
       <span id="select-hint" aria-live="polite"></span>
       <span class="tool-buttons">
@@ -453,6 +507,21 @@
       </span>
     </div>
 
+    <div class="stage-row">
+    <div class="rail" role="toolbar" aria-label="What the mouse does in the 3D view" aria-orientation="vertical">
+      <button type="button" class="rail-btn" id="pointer-btn" aria-pressed="true" title="Select: click an object in the 3D view to select it; drag to turn the view">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M4 2.5v10l2.6-2.3 1.7 3.6 1.6-.8-1.7-3.5 3.3-.2z"/></svg>Select
+      </button>
+      <button type="button" class="rail-btn" id="curve-btn" aria-pressed="false" title="Curve: draw a curve on a mesh by clicking points on it">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M2 12c2-8 4-8 6-3s4 4 6-5"/></svg>Curve
+      </button>
+      <button type="button" class="rail-btn" id="lasso-btn" aria-pressed="false" title="Lasso: select part of a mesh by drawing round it">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M8 2.5c3.6 0 6.5 1.8 6.5 4s-2.9 4-6.5 4c-1 0-2-.1-2.8-.4M3 8.6C2 7.9 1.5 7.2 1.5 6.5c0-2.2 2.9-4 6.5-4"/><path d="M4.5 9.5c-1.2.6-1.5 2-.6 3 .7.7 1.8.6 2.4 0"/></svg>Lasso
+      </button>
+      <button type="button" class="rail-btn" id="box-btn" aria-pressed="false" title="Box: select part of a mesh by dragging a box over it">
+        <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><rect x="2.5" y="3.5" width="11" height="9" stroke-dasharray="2 1.5"/></svg>Box
+      </button>
+    </div>
     <main class="stage" id="stage" aria-label="3D view">
       <svg class="select-overlay" id="select-overlay" aria-hidden="true" hidden><path id="select-path"/></svg>
       <p class="stage-empty" id="stage-empty" hidden>Open STL or PLY meshes, or drop them here.</p>
@@ -461,6 +530,7 @@
         <div class="busy-box"><span class="spinner" aria-hidden="true"></span><span id="busy-text"></span></div>
       </div>
     </main>
+    </div>
   </div>
 </div>
 

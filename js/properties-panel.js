@@ -216,7 +216,7 @@ function pointLine(p) {
   return `${p.code ?? p.id}\t${p.name}\t${p.status ?? ''}\t${xyz}`;
 }
 
-// `app.regions` (the region engine) is looked up when a button is pressed: it is made after this panel.
+// `app.regions`, `app.commands` and the rest are looked up when needed: they are made after this panel.
 export function setupProperties(el, { model, copyText, app }) {
   function render() {
     const d = describe(model, model.selectedId);
@@ -235,6 +235,16 @@ export function setupProperties(el, { model, copyText, app }) {
           </select>
         </label>`
       : '';
+    // What can be made from this object: the commands it suits (commands.js), and a mesh from a region.
+    const make = (app.commands?.available(node) ?? []).map(
+      (c) => `<button type="button" class="btn small" data-make="${c.id}" title="${esc(c.title)}">${esc(c.short)}</button>`
+    );
+    if (node.kind === 'region' && !node.error) {
+      make.push('<button type="button" class="btn small" id="prop-extract" title="Make a new mesh of just this region. The original mesh stays as it is.">New mesh</button>');
+    }
+    const makeRow = make.length
+      ? `<div class="props-make" id="prop-make"><span class="props-make-label">Make from this</span><div class="props-actions">${make.join('')}</div></div>`
+      : '';
     el.innerHTML = `
       <div class="props-head">
         <input type="text" id="prop-name" aria-label="Name" value="${esc(d.title)}">
@@ -243,12 +253,12 @@ export function setupProperties(el, { model, copyText, app }) {
       <dl class="props-list">
         ${d.rows.map(([k, v, mono]) => (k === 'Problem' ? `<dd class="problem" style="grid-column: 1 / -1">${esc(v)}</dd>` : `<dt>${esc(k)}</dt><dd${mono ? ' class="mono"' : ''}>${esc(v)}</dd>`)).join('')}
       </dl>
+      ${makeRow}
       <div class="props-actions">
         ${d.copy ? '<button type="button" class="btn small" id="prop-copy">Copy numbers</button>' : ''}
         ${node.kind === 'region' ? '<button type="button" class="btn small" id="prop-flip" title="Take the part on the other side of the boundary instead">Use the other side</button>' : ''}
         ${node.kind === 'plane' && !node.error ? '<button type="button" class="btn small" id="prop-flip-fit" title="Turn the normal the other way; the plane stays where it is">Flip normal</button>' : ''}
         ${node.kind === 'cylinder' && !node.error ? '<button type="button" class="btn small" id="prop-flip-fit" title="Turn the axis direction the other way; the axis stays where it is">Flip direction</button>' : ''}
-        ${node.kind === 'region' && !node.error ? '<button type="button" class="btn small" id="prop-extract" title="Make a new mesh of just this region. The original mesh stays as it is.">New mesh from region</button>' : ''}
         ${node.kind === 'mesh' ? '<button type="button" class="btn small" id="prop-save-stl" title="Save this mesh as a binary STL file">Save as STL</button><button type="button" class="btn small" id="prop-save-ply" title="Save this mesh as a binary PLY file">Save as PLY</button>' : ''}
         <button type="button" class="btn small" id="prop-remove">Remove</button>
       </div>
@@ -268,7 +278,9 @@ export function setupProperties(el, { model, copyText, app }) {
 
   el.addEventListener('click', async (e) => {
     const id = model.selectedId;
-    if (e.target.id === 'prop-remove') {
+    if (e.target.dataset.make) {
+      app.run(e.target.dataset.make);
+    } else if (e.target.id === 'prop-remove') {
       model.remove(id);
     } else if (e.target.id === 'prop-extract') {
       e.target.disabled = true;

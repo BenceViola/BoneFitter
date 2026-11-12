@@ -1,5 +1,5 @@
 // Wires the page together: the 3D view, picking, the object tree and its
-// two panels (Objects, Properties), the toolbar and its tools, and opening files.
+// two panels (Objects, Properties), the menus, the tool rail, and opening files.
 
 import { Viewer } from './viewer.js';
 import { Picker } from './picking.js';
@@ -16,6 +16,9 @@ import { setupInteraction } from './interaction.js';
 import { RegionEngine } from './region-engine.js';
 import { SelectTool } from './select-tool.js';
 import { FitEngine } from './fit-engine.js';
+import { CommandRunner } from './command-runner.js';
+import { MENUS } from './commands.js';
+import { setupMenus } from './menus.js';
 import { meshFromRegion } from './extract.js';
 import { stlBytes, plyBytes } from './mesh-export.js';
 import { saveFile, prepareSaving } from './file-io.js';
@@ -69,6 +72,7 @@ if (webgl) {
   app.regions = new RegionEngine(model, picker, app.engine);
   app.fits = new FitEngine(model, (id) => view.sources.get(id) || null);
   app.select = new SelectTool({ model, picker, view, viewer, regions: app.regions, ui: app });
+  app.commands = new CommandRunner({ model, regions: app.regions, fits: app.fits });
   setupInteraction({
     stage: $('stage'),
     viewer,
@@ -79,6 +83,7 @@ if (webgl) {
     regions: app.regions,
     tool: app.tool,
     select: app.select,
+    commands: app.commands,
     overlay: $('select-overlay'),
   });
   app.select.addEventListener('change', renderSelect);
@@ -103,61 +108,66 @@ if (webgl) {
   $('curve-close').addEventListener('click', () => app.tool.close());
   $('curve-undo').addEventListener('click', () => app.tool.undo());
   $('curve-cancel').addEventListener('click', () => app.tool.cancel());
-  $('region-btn').addEventListener('click', makeRegion);
-  for (const kind of ['sphere', 'cylinder', 'plane']) $(`${kind}-btn`).addEventListener('click', () => fitPrimitive(kind));
+  // The Select button: back to the plain mouse (click selects, drag turns the view).
+  $('pointer-btn').addEventListener('click', () => {
+    app.tool.setActive(false);
+    app.select.setMode(null);
+  });
+
+  // Making things: the menus (one per kind of object), the "Make from this"
+  // buttons in Properties, and the strip that asks for what a command needs.
+  setupMenus($('menus'), MENUS, run);
+  app.run = run;
+  app.commands.addEventListener('change', renderPrompt);
+  $('prompt-cancel').addEventListener('click', () => app.commands.cancel());
+  // While a command asks for an object, a click on a name in the Objects list
+  // offers that object to it (the list has selected it just before this), as
+  // a click in the 3D view does (interaction.js).
+  $('tree').addEventListener('click', (e) => {
+    if (app.commands.active && model.selectedId && e.target.closest('[data-act="select"]')) app.commands.offer(model.selectedId);
+  });
+  app.properties.render(); // now that there are commands to offer
 }
 const { tool } = app;
 
-// The Region button: a region from the selected closed curve. A loop that is
-// still being drawn is closed first.
-function makeRegion() {
+// Run a command (commands.js): made at once from the selected object when
+// that suits; otherwise the strip asks for what it needs, or a note says
+// what to make first. A loop that is still being drawn is closed first.
+function run(id) {
   if (tool.draft && tool.state().canClose) tool.close();
-  const curve = model.selected;
-  if (curve?.kind !== 'curve') {
-    showMessage('note', ['Select a closed curve first, then press Region. The region is the part of the mesh that the curve encloses.']);
-    return;
+  const r = app.commands.start(id);
+  if (r.status === 'nothing') showMessage('note', [r.message]);
+  else clearMessage();
+  if (r.status === 'asking') {
+    // Clicks now pick the object, so the drawing tools step aside.
+    tool.setActive(false);
+    app.select.setMode(null);
   }
-  const region = app.regions.create(curve.id);
-  if (!region) {
-    showMessage('note', [`“${curve.name}” is not a closed loop. A region needs a curve that comes back to its first point: draw one and close it with C.`]);
-    return;
-  }
-  clearMessage();
-  model.select(region.id);
+  return r;
 }
 
-// The Sphere, Cylinder and Plane buttons: fit to the selected region. With
-// a closed curve selected, a sphere or cylinder uses the curve's region (made
-// first if there is none), while a plane is fitted to the curve's own path:
-// a rim or margin. A loop still being drawn is closed first.
-const FIT_NAMES = { sphere: 'Sphere', cylinder: 'Cylinder', plane: 'Plane' };
-function fitPrimitive(kind) {
-  if (tool.draft && tool.state().canClose) tool.close();
-  let source = model.selected;
-  if (source?.kind === 'curve' && kind !== 'plane' && app.regions.canBound(source)) {
-    const curve = source;
-    source = app.regions.regionsOf(curve.id).find((r) => r.boundary.length === 1 && !r.flipped) ?? app.regions.create(curve.id);
+function renderPrompt() {
+  const s = app.commands.state();
+  if ($('prompt-strip').hidden === s.active) {
+    $('prompt-strip').hidden = !s.active;
+    viewer.resize();
   }
-  if (!app.fits.canFit(kind, source)) {
-    const what =
-      kind === 'plane'
-        ? 'Select a region or a curve first, then press Plane. The plane is fitted to the part of the mesh the region covers, or to the path of the curve.'
-        : `Select a region (or a closed curve) first, then press ${FIT_NAMES[kind]}. The ${kind} is fitted to the part of the mesh the region covers.`;
-    showMessage('note', [source?.kind === 'curve' && kind !== 'plane' ? `“${source.name}” is not a closed loop, so it encloses no region. ${what}` : what]);
-    return;
-  }
-  if (source.kind === 'region' && source.error) {
-    model.select(source.id);
-    showMessage('note', [`“${source.name}” encloses nothing at the moment, so there is nothing to fit. Its Properties say why.`]);
-    return;
-  }
-  clearMessage();
-  model.select(app.fits.create(source.id, kind).id);
+  $('prompt-title').textContent = s.title;
+  $('prompt-hint').textContent = s.note ?? s.hint;
+  $('stage').classList.toggle('is-picking', s.active);
+}
+
+// One thing at a time: choosing a drawing tool ends a command that was asking.
+function renderRail() {
+  const on = tool.active || app.select.active;
+  $('pointer-btn').setAttribute('aria-pressed', String(!on));
+  if (on) app.commands.cancel();
 }
 
 // The Curve button, and the strip of the tool's own buttons over the 3D view.
 function renderTool() {
   const t = tool.state();
+  renderRail();
   $('curve-btn').setAttribute('aria-pressed', String(t.active));
   $('stage').classList.toggle('is-drawing', t.active);
   if ($('tool-strip').hidden === t.active) {
@@ -175,6 +185,7 @@ function renderTool() {
 // on, a left-drag draws an outline, so the camera doesn't turn (pan and zoom still work).
 function renderSelect() {
   const s = app.select.state();
+  renderRail();
   $('lasso-btn').setAttribute('aria-pressed', String(s.mode === 'lasso'));
   $('box-btn').setAttribute('aria-pressed', String(s.mode === 'box'));
   $('stage').classList.toggle('is-selecting', s.drawing);
@@ -201,6 +212,7 @@ window.addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, textarea, select')) return;
   if (e.key === 'f' || e.key === 'F') viewer?.fit();
   else if (e.key === 'h' || e.key === 'H') viewer?.viewFrom('home');
+  else if (e.key === 'Escape' && app.commands?.active) app.commands.cancel();
   else if (e.key === 'Escape' && app.select?.active) app.select.togglePause();
   else if (tool?.active && curveKey(e)) e.preventDefault();
 });

@@ -4,7 +4,7 @@
 import { test, describe, before, after, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
 import {
-  startServer, launch, openApp, clickAt, onScreen, openFiles, messageText, treeRows, properties, makeFiles,
+  startServer, launch, openApp, choose, clickAt, onScreen, openFiles, messageText, treeRows, properties, makeFiles,
 } from './helpers.js';
 import { EXAMPLE } from '../../js/sample.js';
 import { loadMeshBuffer } from '../../js/mesh-loader.js';
@@ -430,7 +430,7 @@ describe('regions', () => {
   test('Region makes a region from the selected closed curve: listed, tinted, with area and centroid', async () => {
     const page = await start();
     await drawLoop(page, loop(30));
-    await page.locator('#region-btn').click();
+    await choose(page, 'region-loop');
 
     assert.deepEqual((await treeRows(page)).map((r) => [r.name, r.kind, r.depth, r.selected]), [
       ['Example femur', 'mesh', 0, false],
@@ -459,7 +459,7 @@ describe('regions', () => {
     const page = await start();
     await page.locator('#curve-btn').click();
     for (const p of loop(30, 5)) await clickAt(page, await onScreen(page, p));
-    await page.locator('#region-btn').click();
+    await choose(page, 'region-loop');
     assert.equal((await node(page, 'c1')).closed, true);
     assert.equal((await properties(page)).name, 'Region 1');
     assert.equal((await node(page, 'r1')).error, null);
@@ -467,12 +467,13 @@ describe('regions', () => {
 
   test('Region says what to select when there is no closed curve', async () => {
     const page = await start();
-    await page.locator('#region-btn').click();
-    assert.match(await messageText(page), /Select a closed curve first/);
+    await choose(page, 'region-loop');
+    assert.match(await messageText(page), /There is no closed curve yet/);
+    assert.equal(await page.locator('#prompt-strip').isHidden(), true, 'nothing to pick from, so it does not ask');
     await page.locator('#curve-btn').click();
     for (const p of loop(30, 2)) await clickAt(page, await onScreen(page, p));
     await page.keyboard.press('Enter');
-    await page.locator('#region-btn').click();
+    await choose(page, 'region-loop');
     assert.match(await messageText(page), /“Curve 1” is not a closed loop/);
     assert.deepEqual(await names(page), ['Example femur', 'Curve 1']);
   });
@@ -480,7 +481,7 @@ describe('regions', () => {
   test('Use the other side takes the rest of the surface instead', async () => {
     const page = await start();
     await drawLoop(page, loop(30));
-    await page.locator('#region-btn').click();
+    await choose(page, 'region-loop');
     const inside = (await node(page, 'r1')).area;
     await page.locator('#prop-flip').click();
     const r = await node(page, 'r1');
@@ -493,7 +494,7 @@ describe('regions', () => {
   test('dragging a point of the curve reshapes its region', async () => {
     const page = await start();
     await drawLoop(page, loop(25));
-    await page.locator('#region-btn').click();
+    await choose(page, 'region-loop');
     const before = (await node(page, 'r1')).area;
     await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
     const from = await onScreen(page, loop(25)[2]);
@@ -511,7 +512,7 @@ describe('regions', () => {
   test('a click inside a region selects it; outside it, the mesh; removing the curve removes the region', async () => {
     const page = await start();
     await drawLoop(page, loop(30));
-    await page.locator('#region-btn').click();
+    await choose(page, 'region-loop');
     await clickAt(page, await onScreen(page, loop(60)[1]));
     assert.equal((await properties(page)).kind, 'Mesh');
     await clickAt(page, await onScreen(page, loop(0)[0]));
@@ -533,7 +534,7 @@ describe('regions', () => {
     await page.locator('#curve-btn').click();
 
     await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
-    await page.locator('#region-btn').click();
+    await choose(page, 'region-loop');
     const whole = (await node(page, 'r1')).area;
     await page.locator('#prop-add-boundary').selectOption({ label: 'Curve 2' });
     const p = await properties(page);
@@ -551,7 +552,7 @@ describe('regions', () => {
     const page = await start();
     const [a, b, c, d] = loop(30, 4);
     await drawLoop(page, [a, c, b, d]);
-    await page.locator('#region-btn').click();
+    await choose(page, 'region-loop');
     assert.equal((await node(page, 'r1')).error, 'crossing');
     assert.match(await page.locator('#properties .problem').innerText(), /crosses itself/);
     assert.equal((await treeRows(page)).find((r) => r.name === 'Region 1').count, '!');
@@ -606,8 +607,8 @@ describe('fitted spheres', () => {
   test('Sphere on a region gives back the example\'s head: centre and radius as built', async () => {
     const page = await start();
     await drawLoop(page, loop(35));
-    await page.locator('#region-btn').click();
-    await page.locator('#sphere-btn').click();
+    await choose(page, 'region-loop');
+    await choose(page, 'sphere-fit');
 
     assert.deepEqual((await treeRows(page)).map((r) => [r.name, r.kind, r.depth, r.selected]), [
       ['Example femur', 'mesh', 0, false],
@@ -629,22 +630,22 @@ describe('fitted spheres', () => {
 
   test('Sphere on a closed curve makes its region first; on nothing it says what to select', async () => {
     const page = await start();
-    await page.locator('#sphere-btn').click();
-    assert.match(await messageText(page), /Select a region \(or a closed curve\) first/);
+    await choose(page, 'sphere-fit');
+    assert.match(await messageText(page), /There is no region yet/);
     await drawLoop(page, loop(30));
-    await page.locator('#sphere-btn').click();
+    await choose(page, 'sphere-fit');
     assert.deepEqual(await names(page), ['Example femur', 'Curve 1', 'Region 1', 'Sphere 1']);
     assert.equal((await properties(page)).rows.Radius, '12.000');
     // The curve's existing region is used, not a second one.
     await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
-    await page.locator('#sphere-btn').click();
+    await choose(page, 'sphere-fit');
     assert.deepEqual(await names(page), ['Example femur', 'Curve 1', 'Region 1', 'Sphere 1', 'Sphere 2']);
   });
 
   test('moving a point of the curve refits the sphere; it stays the head', async () => {
     const page = await start();
     await drawLoop(page, loop(25));
-    await page.locator('#sphere-btn').click();
+    await choose(page, 'sphere-fit');
     const before = await node(page, 's1');
     await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
     const from = await onScreen(page, loop(25)[3]);
@@ -662,7 +663,7 @@ describe('fitted spheres', () => {
   test('a click on the centre mark selects the sphere; Copy numbers gives its row; removing the curve removes it', async () => {
     const page = await start();
     await drawLoop(page, loop(30));
-    await page.locator('#sphere-btn').click();
+    await choose(page, 'sphere-fit');
     await page.locator('#tree .tree-name', { hasText: 'Example femur' }).click();
     await clickAt(page, await onScreen(page, EXAMPLE.head.centre));
     assert.equal((await properties(page)).name, 'Sphere 1');
@@ -684,7 +685,7 @@ describe('fitted spheres', () => {
   test('a sphere whose region encloses nothing shows the problem until the curve is put right', async () => {
     const page = await start();
     await drawLoop(page, loop(30));
-    await page.locator('#sphere-btn').click();
+    await choose(page, 'sphere-fit');
     // Drag two points past each other, so the loop crosses itself.
     await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
     const pts = loop(30);
@@ -738,7 +739,7 @@ describe('fitted cylinders and planes', () => {
   test('Cylinder on a patch of the shaft gives back the shaft: its axis and radius as built', async () => {
     const page = await start();
     await drawLoop(page, [onShaft(-30, 30), onShaft(0, 30), onShaft(30, 30), onShaft(30, 70), onShaft(0, 70), onShaft(-30, 70)]);
-    await page.locator('#cylinder-btn').click();
+    await choose(page, 'cylinder-fit');
     assert.deepEqual((await treeRows(page)).map((r) => [r.name, r.kind, r.selected]), [
       ['Example femur', 'mesh', false],
       ['Curve 1', 'curve', false],
@@ -763,7 +764,7 @@ describe('fitted cylinders and planes', () => {
   test('Plane on a curve fits its path; on a region, the patch; Flip normal turns it round', async () => {
     const page = await start();
     await drawLoop(page, headLoop(30, 10));
-    await page.locator('#plane-btn').click();
+    await choose(page, 'plane-curve');
     assert.deepEqual(await names(page), ['Example femur', 'Curve 1', 'Plane 1']);
     let p = await properties(page);
     assert.equal(p.kind, 'Plane');
@@ -773,8 +774,8 @@ describe('fitted cylinders and planes', () => {
     assert.match(p.rows.Equation, /x \+ .* y \+ .* z = /);
 
     await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
-    await page.locator('#region-btn').click();
-    await page.locator('#plane-btn').click();
+    await choose(page, 'region-loop');
+    await choose(page, 'plane-fit');
     p = await properties(page);
     assert.equal(p.rows['Fitted to'], 'Region 1');
     const fromRegion = await node(page, 'f2');
@@ -785,12 +786,12 @@ describe('fitted cylinders and planes', () => {
 
   test('a click on a plane\'s centre mark selects it; Plane with nothing selected says what to select', async () => {
     const page = await start();
-    await page.locator('#plane-btn').click();
-    assert.match(await messageText(page), /Select a region or a curve first/);
-    await page.locator('#cylinder-btn').click();
-    assert.match(await messageText(page), /Select a region \(or a closed curve\) first, then press Cylinder/);
+    await choose(page, 'plane-curve');
+    assert.match(await messageText(page), /There is no curve yet/);
+    await choose(page, 'cylinder-fit');
+    assert.match(await messageText(page), /There is no region yet/);
     await drawLoop(page, headLoop(30, 8));
-    await page.locator('#plane-btn').click();
+    await choose(page, 'plane-curve');
     const f = await node(page, 'f1');
     await page.locator('#tree .tree-name', { hasText: 'Example femur' }).click();
     await clickAt(page, await onScreen(page, f.point));
@@ -824,7 +825,7 @@ describe('meshes from regions', () => {
     for (const p of headLoop(35, 10)) await clickAt(page, await onScreen(page, p));
     await page.keyboard.press('c');
     await page.locator('#curve-btn').click();
-    await page.locator('#region-btn').click();
+    await choose(page, 'region-loop');
   }
 
   test('New mesh from region adds a mesh of just the region, with its surface area; the original stays', async () => {
@@ -938,7 +939,7 @@ describe('lasso and box selection', () => {
     const r = await node(page, 'r1');
     assert.equal(r.error, null);
     assert.ok(r.faceCount > 100);
-    await page.locator('#sphere-btn').click();
+    await choose(page, 'sphere-fit');
     assert.equal((await properties(page)).rows.Radius, '12.000');
   });
 
@@ -1079,5 +1080,236 @@ describe('view', () => {
     assert.deepEqual(await names(page), ['Example femur']);
     const scroll = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
     assert.equal(scroll, 0, 'no sideways scrolling');
+  });
+});
+
+describe('menus, the tool rail and the prompts that ask for what a command needs', () => {
+  const unit = (v) => v.map((x) => x / Math.hypot(...v));
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const HOME = unit([0.45, 0.35, 1]);
+  const E1 = unit(cross(HOME, [0, 1, 0]));
+  const E2 = cross(HOME, E1);
+  const R = EXAMPLE.head.radius;
+  const onHead = (angle, t) => {
+    const a = (angle * Math.PI) / 180;
+    return EXAMPLE.head.centre.map((c, i) => c + R * (Math.cos(a) * HOME[i] + Math.sin(a) * (Math.cos(t) * E1[i] + Math.sin(t) * E2[i])));
+  };
+  const loop = (angle, n = 8) => Array.from({ length: n }, (_, k) => onHead(angle, (2 * Math.PI * k) / n));
+  const pressed = (page, id) => page.locator(`#${id}`).getAttribute('aria-pressed');
+  const box = (page, sel) => page.locator(sel).boundingBox();
+  const strip = async (page) => ((await page.locator('#prompt-strip').isHidden()) ? null : page.locator('#prompt-text').innerText());
+
+  async function drawLoop(page, points) {
+    await page.locator('#curve-btn').click();
+    for (const p of points) await clickAt(page, await onScreen(page, p));
+    await page.keyboard.press('c');
+    await page.locator('#pointer-btn').click();
+  }
+  // A closed curve on the head with its region; the mesh is left selected.
+  async function withRegion(page) {
+    await drawLoop(page, loop(30));
+    await choose(page, 'region-loop');
+    await page.locator('#tree .tree-name', { hasText: 'Example femur' }).click();
+  }
+
+  test('the bar above the 3D view is one row: Open, a menu per kind of object, the views', async () => {
+    const page = await start();
+    assert.deepEqual(await page.$$eval('#menus .menu-btn', (els) => els.map((e) => e.textContent.trim())), ['Region', 'Sphere', 'Cylinder', 'Plane']);
+    const bar = await box(page, '.toolbar');
+    assert.ok(bar.height < 60, `one row, ${bar.height}px high`);
+    for (const id of ['region-btn', 'sphere-btn', 'cylinder-btn', 'plane-btn']) assert.equal(await page.locator(`#${id}`).count(), 0);
+  });
+
+  test('the rail beside the 3D view holds the mouse tools; it never covers the view', async () => {
+    const page = await start();
+    assert.deepEqual(await page.$$eval('.rail .rail-btn', (els) => els.map((e) => e.textContent.trim())), ['Select', 'Curve', 'Lasso', 'Box']);
+    const rail = await box(page, '.rail');
+    const stage = await box(page, '#stage');
+    assert.ok(rail.x + rail.width <= stage.x + 0.5, 'the rail ends where the 3D view begins');
+    assert.ok(rail.height > 3 * rail.width, 'a column');
+    const canvas = await box(page, '#stage canvas');
+    assert.ok(Math.abs(canvas.width - stage.width) < 1 && Math.abs(canvas.height - stage.height) < 1, 'the view fills its place');
+
+    assert.equal(await pressed(page, 'pointer-btn'), 'true');
+    await page.locator('#lasso-btn').click();
+    assert.deepEqual([await pressed(page, 'pointer-btn'), await pressed(page, 'lasso-btn')], ['false', 'true']);
+    await page.locator('#curve-btn').click();
+    assert.deepEqual([await pressed(page, 'pointer-btn'), await pressed(page, 'lasso-btn'), await pressed(page, 'curve-btn')], ['false', 'false', 'true']);
+    await page.locator('#pointer-btn').click();
+    assert.deepEqual([await pressed(page, 'pointer-btn'), await pressed(page, 'curve-btn')], ['true', 'false']);
+    assert.equal(await page.locator('#tool-strip').isHidden(), true);
+    // A click now selects again.
+    await clickAt(page, await onScreen(page, onHead(0, 0)));
+    assert.equal((await properties(page)).name, 'Example femur');
+  });
+
+  test('a menu lists the ways to make that kind of object; Esc or a click elsewhere closes it', async () => {
+    const page = await start();
+    const list = page.locator('#plane-menu + .menu-list');
+    assert.equal(await list.isHidden(), true);
+    await page.locator('#plane-menu').click();
+    assert.equal(await page.locator('#plane-menu').getAttribute('aria-expanded'), 'true');
+    assert.deepEqual(await list.locator('button').allInnerTexts(), ['Fit to a region', 'Fit to a curve']);
+    // Under its button, over the 3D view.
+    const [b, l] = [await box(page, '#plane-menu'), await list.boundingBox()];
+    assert.ok(l.y >= b.y + b.height && Math.abs(l.x - b.x) < 2);
+    assert.equal(await page.evaluate(() => {
+      const r = document.querySelector('#plane-menu + .menu-list button').getBoundingClientRect();
+      return document.elementFromPoint(r.left + 5, r.top + 5).dataset.command;
+    }), 'plane-fit');
+
+    await page.keyboard.press('Escape');
+    assert.equal(await list.isHidden(), true);
+    // Another menu takes its place; a click in the 3D view closes it.
+    await page.locator('#plane-menu').click();
+    await page.locator('#sphere-menu').click();
+    assert.equal(await list.isHidden(), true);
+    assert.equal(await page.locator('#sphere-menu + .menu-list').isVisible(), true);
+    await clickAt(page, await onScreen(page, onHead(0, 0)));
+    assert.equal(await page.locator('#sphere-menu + .menu-list').isHidden(), true);
+  });
+
+  test('with the keyboard: Enter opens a menu, the arrows walk it, Enter chooses', async () => {
+    const page = await start();
+    await drawLoop(page, loop(30));
+    await page.locator('#plane-menu').focus();
+    await page.keyboard.press('Enter');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.command), 'plane-fit');
+    await page.keyboard.press('ArrowDown');
+    assert.equal(await page.evaluate(() => document.activeElement.dataset.command), 'plane-curve');
+    await page.keyboard.press('Enter');
+    assert.equal((await properties(page)).rows['Fitted to'], 'Curve 1 (its path)');
+    assert.equal(await page.locator('#plane-menu + .menu-list').isHidden(), true);
+  });
+
+  test('a command asks for what it needs: click the region in the 3D view and the sphere is fitted', async () => {
+    const page = await start();
+    await withRegion(page);
+    const before = await box(page, '#stage');
+    await choose(page, 'sphere-fit');
+    assert.match(await strip(page), /^Sphere: fit to a region\s+Click a region or a closed curve, in the 3D view or in the Objects list\. Esc cancels\.$/);
+    assert.deepEqual(await names(page), ['Example femur', 'Curve 1', 'Region 1'], 'nothing made yet');
+    // The strip has a row of its own: the 3D view gives it up and the picture still fits.
+    const during = await box(page, '#stage');
+    assert.ok(during.height < before.height);
+    const canvas = await box(page, '#stage canvas');
+    assert.ok(Math.abs(canvas.height - during.height) < 1);
+
+    // The shaft is not a region: the strip says so and keeps asking.
+    const h = Math.hypot(HOME[0], HOME[2]);
+    const onShaft = [EXAMPLE.shaft.point[0] + (EXAMPLE.shaft.radius * HOME[0]) / h, EXAMPLE.shaft.point[1] + 50, EXAMPLE.shaft.point[2] + (EXAMPLE.shaft.radius * HOME[2]) / h];
+    await clickAt(page, await onScreen(page, onShaft));
+    await page.waitForFunction(() => /is a mesh/.test(document.getElementById('prompt-text').innerText));
+    assert.match(await strip(page), /“Example femur” is a mesh\. Click a region or a closed curve\./);
+
+    // In the middle of the region, the region is what a click picks.
+    await clickAt(page, await onScreen(page, onHead(0, 0)));
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'sphere');
+    assert.equal(await strip(page), null);
+    const p = await properties(page);
+    assert.equal(p.rows['Fitted to'], 'Region 1');
+    assert.equal(p.rows.Radius, '12.000');
+    assert.equal((await box(page, '#stage')).height, before.height);
+  });
+
+  test('the object can also be picked in the Objects list; a curve is taken over the region under it where it suits', async () => {
+    const page = await start();
+    await withRegion(page);
+    await choose(page, 'cylinder-fit');
+    await page.locator('#tree .tree-name', { hasText: 'Region 1' }).click();
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'cylinder');
+    assert.equal((await properties(page)).rows['Fitted to'], 'Region 1');
+
+    // Plane ▸ Fit to a curve: a click on the curve's line takes the curve, not the region or the mesh.
+    await page.locator('#tree .tree-name', { hasText: 'Example femur' }).click();
+    await choose(page, 'plane-curve');
+    assert.match(await strip(page), /^Plane: fit to a curve\s+Click a curve/);
+    await clickAt(page, await onScreen(page, loop(30)[2]));
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'plane');
+    assert.equal((await properties(page)).rows['Fitted to'], 'Curve 1 (its path)');
+
+    // Plane ▸ Fit to a region: a click on the same spot of the curve takes the region under it.
+    await page.locator('#tree .tree-name', { hasText: 'Example femur' }).click();
+    await choose(page, 'plane-fit');
+    await clickAt(page, await onScreen(page, onHead(10, 0)));
+    await page.waitForFunction(() => window.__bf.model.selected?.name === 'Plane 2');
+    assert.equal((await properties(page)).rows['Fitted to'], 'Region 1');
+  });
+
+  test('Esc, Cancel and choosing a tool all stop a command that is asking; nothing is made', async () => {
+    const page = await start();
+    await withRegion(page);
+    await choose(page, 'sphere-fit');
+    await page.keyboard.press('Escape');
+    assert.equal(await strip(page), null);
+    await choose(page, 'sphere-fit');
+    await page.locator('#prompt-cancel').click();
+    assert.equal(await strip(page), null);
+    await choose(page, 'sphere-fit');
+    await page.locator('#lasso-btn').click();
+    assert.equal(await strip(page), null);
+    assert.equal(await page.locator('#select-strip').isVisible(), true);
+    // And the other way round: a command that has to ask puts the tool away.
+    await choose(page, 'sphere-fit');
+    assert.match(await strip(page), /^Sphere: fit to a region/);
+    assert.equal(await page.locator('#select-strip').isHidden(), true);
+    assert.deepEqual([await pressed(page, 'lasso-btn'), await pressed(page, 'pointer-btn')], ['false', 'true']);
+    await page.keyboard.press('Escape');
+    // After a cancel a click only selects.
+    await page.locator('#tree .tree-name', { hasText: 'Region 1' }).click();
+    assert.deepEqual(await names(page), ['Example femur', 'Curve 1', 'Region 1']);
+  });
+
+  test('with a suitable object selected nothing is asked, and a tool that is on stays on', async () => {
+    const page = await start();
+    await withRegion(page);
+    await page.locator('#tree .tree-name', { hasText: 'Region 1' }).click();
+    await page.locator('#box-btn').click();
+    await choose(page, 'sphere-fit');
+    assert.equal(await strip(page), null);
+    assert.equal((await properties(page)).name, 'Sphere 1');
+    assert.equal(await pressed(page, 'box-btn'), 'true');
+  });
+
+  test('Properties offer what can be made from the selected object, in one click', async () => {
+    const page = await start();
+    const offered = () => page.$$eval('#prop-make button', (els) => els.map((e) => e.textContent));
+    assert.equal(await page.locator('#prop-make').count(), 0, 'nothing selected');
+    await withRegion(page);
+    assert.equal(await page.locator('#prop-make').count(), 0, 'nothing is made from a mesh yet');
+
+    await page.locator('#tree .tree-name', { hasText: 'Region 1' }).click();
+    assert.equal(await page.locator('#prop-make .props-make-label').innerText(), 'Make from this');
+    assert.deepEqual(await offered(), ['Sphere', 'Cylinder', 'Plane', 'New mesh']);
+    await page.locator('#prop-make [data-make="sphere-fit"]').click();
+    let p = await properties(page);
+    assert.deepEqual([p.name, p.rows['Fitted to'], p.rows.Radius], ['Sphere 1', 'Region 1', '12.000']);
+    assert.equal(await page.locator('#prop-make').count(), 0, 'nothing is made from a sphere yet');
+
+    await page.locator('#tree .tree-name', { hasText: 'Curve 1' }).click();
+    assert.deepEqual(await offered(), ['Region', 'Sphere', 'Cylinder', 'Plane']);
+    await page.locator('#prop-make [data-make="plane-curve"]').click();
+    p = await properties(page);
+    assert.deepEqual([p.name, p.rows['Fitted to']], ['Plane 1', 'Curve 1 (its path)']);
+
+    // An open curve: only a plane.
+    await page.locator('#curve-btn').click();
+    for (const q of [onHead(50, 0), onHead(50, 0.5), onHead(50, 1)]) await clickAt(page, await onScreen(page, q));
+    await page.keyboard.press('Enter');
+    await page.locator('#pointer-btn').click();
+    assert.equal((await properties(page)).name, 'Curve 2');
+    assert.deepEqual(await offered(), ['Plane']);
+  });
+
+  test('on a narrow screen the menus, the rail and the strip still fit', async () => {
+    const page = await start({ width: 420, height: 800 });
+    await page.locator('#sphere-menu').click();
+    const l = await box(page, '#sphere-menu + .menu-list');
+    assert.ok(l.x >= 0 && l.x + l.width <= 420, 'the menu is on the screen');
+    await page.keyboard.press('Escape');
+    const rail = await box(page, '.rail');
+    const stage = await box(page, '#stage');
+    assert.ok(rail.x + rail.width <= stage.x + 0.5 && stage.x + stage.width <= 420.5);
+    assert.equal(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth), true, 'nothing sticks out sideways');
   });
 });

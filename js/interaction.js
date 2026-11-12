@@ -8,13 +8,16 @@
 //                          is recomputed as it moves
 //   drag anywhere else     rotate / pan / zoom (TrackballControls)
 //
+// While a command asks for an object ("click a region"), a click selects
+// the thing under the cursor that the command can use.
+//
 // A press that moves more than a few pixels, or lasts long, is not a click.
 
 const CLICK_SLOP = 5; // px
 const CLICK_TIME = 600; // ms
 const DRAG_START = 3; // px before a press on a handle becomes a drag
 
-export function setupInteraction({ stage, viewer, picker, view, model, engine, regions, tool, select, overlay }) {
+export function setupInteraction({ stage, viewer, picker, view, model, engine, regions, tool, select, commands, overlay }) {
   const canvas = viewer.renderer.domElement;
   let press = null;
   let frame = 0;
@@ -147,6 +150,15 @@ export function setupInteraction({ stage, viewer, picker, view, model, engine, r
     if (performance.now() - p.time > CLICK_TIME) return;
     if (tool.active) {
       tool.click(e.clientX, e.clientY).catch((err) => console.error(err));
+      return;
+    }
+    // A command is asking for an object: of the things under the click, take
+    // the one it can use (a region under a curve, say), and offer it.
+    if (commands?.active) {
+      const at = [view.pointAt, view.fitAt, view.curveAt, view.regionAt].map((f) => f.call(view, e.clientX, e.clientY));
+      const id = commands.prefer([...at, picker.pickAt(e.clientX, e.clientY)?.id].filter(Boolean));
+      model.select(id);
+      if (id) commands.offer(id);
       return;
     }
     // What is drawn on a surface wins over the surface; empty space selects nothing.

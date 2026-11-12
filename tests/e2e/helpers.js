@@ -90,6 +90,13 @@ export async function clickAt(page, { x, y }) {
   await page.mouse.up();
 }
 
+// Choose a way of making something from the menus above the 3D view:
+// 'sphere-fit' is Sphere ▸ Fit to a region.
+export async function choose(page, command) {
+  await page.locator(`#${command.split('-')[0]}-menu`).click();
+  await page.locator(`#menus [data-command="${command}"]`).click();
+}
+
 // Where a point of the scene is on the page.
 export async function onScreen(page, point) {
   return page.evaluate((p) => window.__bf.viewer.toClient(p), point);
