@@ -2,7 +2,7 @@
 
 Browser app for fitting geometric primitives (lines, planes, spheres, cylinders) to STL/PLY meshes of bones, to quantify structures such as epiphyses and joint surfaces. Sister app of Landmarker3D and landmarker2D: same stack, same look, opened from GitHub Pages, nothing installed, no data leaves the computer. The owner is a morphometrician, not a web developer: explain changes in plain terms.
 
-**State (v0.7):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose), and regions can also be selected on the screen with Lasso or Box; spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path; a region can be made into a mesh of its own; every mesh shows its surface area and can be saved as STL or PLY. Lines, constructing, measuring, moving meshes and saving are not built yet.
+**State (v0.8):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose), and regions can also be selected on the screen with Lasso or Box; spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path; a region can be made into a mesh of its own; every mesh shows its surface area and can be saved as STL or PLY. Lines, constructing, measuring, moving meshes and saving are not built yet.
 
 ## Ground rules (do not break these)
 
@@ -65,7 +65,7 @@ This is the pattern for everything that depends on something else (curve → reg
 
 ## Deployment
 
-GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.7`) shows which version is live; raise it with each feature that goes live.
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.8`) shows which version is live; raise it with each feature that goes live.
 
 ## Writing for the UI
 
@@ -138,7 +138,8 @@ Raised in the design discussion; check with the owner before building on any of 
 
 ## Lasso and Box selection (built in v0.7, asked for by the owner)
 
-- Lasso and Box buttons switch a selection tool on (one tool at a time, with Curve). While on, a left-drag draws the outline and the camera doesn't turn (`controls.noRotate`); right-drag pans, scroll zooms, Esc or Done leaves the tool. A click (no outline) still selects what is under it.
+- Lasso and Box buttons switch a selection tool on (one tool at a time, with Curve). While on, a left-drag draws the outline and the camera doesn't turn (`controls.noRotate`); right-drag pans, scroll zooms. A click (no outline) still selects what is under it.
+- Esc toggles a pause (v0.8, asked for by the owner): paused, the tool stays chosen but a left-drag turns the view (strip turns amber, "Turn view" pressed); Esc again (or the Turn view button, or the tool's own button) goes back to selecting with the same tool. The selected region stays selected, so Shift and Alt carry on adding to it. Done leaves the tool. `SelectTool`: `paused`, `drawing` (= chosen and not paused), `togglePause()`; choosing a tool ends a pause.
 - A triangle is selected when its centre is inside the outline on screen. "Visible surface only" is the default: the centre must be the first surface along the line of sight from the camera (BVH ray test; other meshes in front hide too). "Select through the surface" takes everything inside the outline.
 - Plain drag: a new region on the mesh of the selected object, or the only mesh shown (otherwise the tool asks which). Shift-drag adds to the selected Lasso/Box region, Alt-drag takes away (a Shift-drag with no such region selected makes a new one).
 - A selection region (`selection: true`) keeps the faces picked (`picked`) and every stroke (`strokes`: type, mode, through, outline in normalised screen coordinates, camera position, target, up, fov, aspect) as the record. It has no boundary curves and doesn't change unless selected on again. "Use the other side" gives every other face of the mesh. Fits, new meshes and saving work on it like on any region.

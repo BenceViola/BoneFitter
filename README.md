@@ -6,7 +6,7 @@ A lightweight tool for fitting geometric primitives (lines, planes, spheres, cyl
 
 Nothing to install. Meshes are read on your own computer and never uploaded.
 
-## Where it stands (v0.7)
+## Where it stands (v0.8)
 
 The foundation, curves drawn on a mesh, regions enclosed by closed curves, spheres, cylinders and planes fitted to them, and new meshes made from regions. Constructing, measuring, moving meshes and saving the scene come next.
 
@@ -35,7 +35,7 @@ Coordinates are always in each mesh file's own coordinate system: the app never 
 | drag / right-drag / scroll | rotate / pan / zoom |
 | F, H | fit the view, default view |
 
-With **Lasso** or **Box** on: drag to select (Shift adds, Alt takes away); right-drag pans, scroll zooms; Esc leaves the tool.
+With **Lasso** or **Box** on: drag to select (Shift adds, Alt takes away); right-drag pans, scroll zooms. **Esc** switches to turning the view, and **Esc** again back to selecting with the same tool, on the same region. Done leaves the tool.
 
 With the **Curve** tool on:
 

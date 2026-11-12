@@ -43,7 +43,7 @@ export function setupInteraction({ stage, viewer, picker, view, model, engine, r
       if (!stage.contains(document.activeElement)) document.activeElement?.blur?.();
       press = { id: e.pointerId, x: e.clientX, y: e.clientY, time: performance.now(), handle: null, dragging: false };
       // With Lasso or Box on, a drag draws the outline (the camera doesn't turn: see main.js).
-      if (select?.active) {
+      if (select?.drawing) {
         press.draw = { type: select.mode, points: [[e.clientX, e.clientY]] };
         press.combine = e.shiftKey ? 'add' : e.altKey ? 'remove' : 'new';
         canvas.setPointerCapture?.(e.pointerId);

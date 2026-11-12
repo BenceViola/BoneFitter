@@ -983,7 +983,7 @@ describe('lasso and box selection', () => {
     assert.equal(through.strokes[0].through, true);
   });
 
-  test('one tool at a time; Esc and Done leave the tool, and the camera turns again', async () => {
+  test('one tool at a time; Done leaves the tool, and the camera turns again', async () => {
     const page = await start();
     await page.locator('#lasso-btn').click();
     await page.locator('#box-btn').click();
@@ -993,15 +993,49 @@ describe('lasso and box selection', () => {
     assert.equal(await page.locator('#select-strip').isHidden(), true);
     await page.locator('#box-btn').click();
     assert.equal(await page.locator('#curve-btn').getAttribute('aria-pressed'), 'false');
-    await page.keyboard.press('Escape');
-    assert.equal(await page.locator('#box-btn').getAttribute('aria-pressed'), 'false');
-    await page.locator('#box-btn').click();
     await page.locator('#select-done').click();
+    assert.equal(await page.locator('#box-btn').getAttribute('aria-pressed'), 'false');
     assert.equal(await page.locator('#select-strip').isHidden(), true);
     const before = await cam(page);
     const box = await page.locator('#stage canvas').boundingBox();
     await drag(page, [[box.x + 20, box.y + box.height - 40], [box.x + 120, box.y + box.height - 60]]);
     assert.notDeepEqual(await cam(page), before, 'without the tool, a drag turns the view');
+  });
+
+  test('Esc toggles between selecting and turning the view, and Shift still adds to the same region', async () => {
+    const page = await start();
+    await page.locator('#box-btn').click();
+    const h = await head(page);
+    await drag(page, [[h.x - 0.5 * h.r, h.y - 0.5 * h.r], [h.x, h.y + 0.5 * h.r]]);
+    const first = (await node(page, 'r1')).faceCount;
+
+    await page.keyboard.press('Escape');
+    assert.equal(await page.locator('#box-btn').getAttribute('aria-pressed'), 'true', 'the tool stays chosen');
+    assert.equal(await page.locator('#select-turn').getAttribute('aria-pressed'), 'true');
+    assert.match(await page.locator('#select-hint').innerText(), /Turning the view/);
+    const before = await cam(page);
+    const box = await page.locator('#stage canvas').boundingBox();
+    await drag(page, [[box.x + 20, box.y + box.height - 40], [box.x + 60, box.y + box.height - 50]]);
+    assert.notDeepEqual(await cam(page), before, 'a drag turns the view');
+    assert.equal((await node(page, 'r1')).faceCount, first, 'and selects nothing');
+    assert.equal((await properties(page)).name, 'Region 1', 'the region is still selected');
+
+    await page.keyboard.press('Escape');
+    assert.match(await page.locator('#select-hint').innerText(), /Drag a box over the part/);
+    const turned = await cam(page);
+    const h2 = await head(page);
+    await drag(page, [[h2.x, h2.y - 0.4 * h2.r], [h2.x + 0.5 * h2.r, h2.y + 0.4 * h2.r]], ['Shift']);
+    assert.deepEqual(await cam(page), turned, 'selecting again: the view stays put');
+    const r = await node(page, 'r1');
+    assert.ok(r.faceCount > first, 'added to the same region');
+    assert.deepEqual(await names(page), ['Example femur', 'Region 1']);
+
+    // The Turn view button does the same; the tool's own button goes back to selecting.
+    await page.locator('#select-turn').click();
+    assert.equal(await page.locator('#select-turn').getAttribute('aria-pressed'), 'true');
+    await page.locator('#box-btn').click();
+    assert.equal(await page.locator('#select-turn').getAttribute('aria-pressed'), 'false');
+    assert.equal(await page.locator('#box-btn').getAttribute('aria-pressed'), 'true');
   });
 
   test('with the tool on, a click still selects what is under it; a drag beside the mesh says nothing was inside', async () => {

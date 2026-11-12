@@ -17,8 +17,9 @@ import { facesInShape, combineFaces } from './selection.js';
 import { BIG_MESH } from './curve-engine.js';
 
 const HINTS = {
-  lasso: 'Drag round the part to select. Shift adds to the selected region, Alt takes away. Right-drag pans, scroll zooms; Esc leaves the tool to turn the view.',
-  box: 'Drag a box over the part to select. Shift adds to the selected region, Alt takes away. Right-drag pans, scroll zooms; Esc leaves the tool to turn the view.',
+  lasso: 'Drag round the part to select. Shift adds to the selected region, Alt takes away. Esc: turn the view.',
+  box: 'Drag a box over the part to select. Shift adds to the selected region, Alt takes away. Esc: turn the view.',
+  paused: 'Turning the view: drag to turn, right-drag to pan, scroll to zoom. Esc: back to selecting.',
 };
 const PROBLEMS = {
   'which-mesh': 'Several meshes are shown. Select the mesh to select on (or something on it) first.',
@@ -35,17 +36,35 @@ export class SelectTool extends EventTarget {
     Object.assign(this, { model, picker, view, viewer, regions, ui });
     this.mode = null; // 'lasso', 'box' or null
     this.through = false; // select through the surface, not only what is visible
+    this.paused = false; // the tool is chosen but the view is being turned
     this.note = null;
   }
 
+  // A tool is chosen (it may be paused while the view is turned).
   get active() {
     return this.mode !== null;
   }
 
+  // A drag draws an outline: a tool is chosen and not paused.
+  get drawing() {
+    return this.mode !== null && !this.paused;
+  }
+
+  // Esc: pause the tool to turn the view, and again to go back to selecting
+  // with the same tool. The selected region stays selected, so Shift and Alt
+  // still add to it and take from it.
+  togglePause() {
+    if (!this.mode) return;
+    this.paused = !this.paused;
+    this.note = null;
+    this._changed();
+  }
+
   setMode(mode) {
     const next = mode === 'lasso' || mode === 'box' ? mode : null;
-    if (next === this.mode) return;
+    if (next === this.mode && !this.paused) return;
     this.mode = next;
+    this.paused = false;
     this.note = null;
     this._changed();
   }
@@ -56,7 +75,8 @@ export class SelectTool extends EventTarget {
   }
 
   state() {
-    return { mode: this.mode, through: this.through, hint: PROBLEMS[this.note] ?? HINTS[this.mode] ?? '' };
+    const hint = PROBLEMS[this.note] ?? (this.paused ? HINTS.paused : HINTS[this.mode]) ?? '';
+    return { mode: this.mode, paused: this.paused, drawing: this.drawing, through: this.through, hint };
   }
 
   // The mesh to select on, and the region to change (for add and remove).

@@ -187,6 +187,26 @@ describe('the Lasso and Box tools', () => {
     void front;
   });
 
+  test('Esc pauses the tool to turn the view, and again goes back to selecting with the same tool', async () => {
+    const { select, model } = setup();
+    const { region } = await select.apply(box(-0.3, -0.3, 0.3, 0.3));
+    select.togglePause();
+    assert.equal(select.mode, 'box');
+    assert.equal(select.active, true);
+    assert.equal(select.drawing, false, 'a drag turns the view now');
+    assert.match(select.state().hint, /Turning the view.*Esc: back to selecting/);
+    select.togglePause();
+    assert.equal(select.drawing, true);
+    assert.equal(model.selectedId, region.id, 'the region stays selected, so Shift still adds to it');
+    assert.equal((await select.apply(box(0.15, -0.3, 0.6, 0.3), 'add')).done, 'add');
+    select.togglePause();
+    select.setMode('lasso');
+    assert.equal(select.paused, false, 'choosing a tool ends the pause');
+    select.setMode(null);
+    select.togglePause();
+    assert.equal(select.paused, false, 'nothing to pause without a tool');
+  });
+
   test('the tool says what it does and fires change', async () => {
     const { select } = setup();
     const seen = events(select);

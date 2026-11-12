@@ -85,13 +85,15 @@ if (webgl) {
   // One tool at a time: switching one on switches the others off.
   for (const mode of ['lasso', 'box']) {
     $(`${mode}-btn`).addEventListener('click', () => {
-      const on = app.select.mode !== mode;
+      // The button of a paused tool takes you back to selecting; otherwise it switches the tool on or off.
+      const on = app.select.mode !== mode || app.select.paused;
       if (on) app.tool.setActive(false);
       app.select.setMode(on ? mode : null);
     });
   }
   $('select-through').addEventListener('change', (e) => app.select.setThrough(e.target.checked));
   $('select-done').addEventListener('click', () => app.select.setMode(null));
+  $('select-turn').addEventListener('click', () => app.select.togglePause());
   app.tool.addEventListener('change', renderTool);
   $('curve-btn').addEventListener('click', () => {
     if (!app.tool.active) app.select.setMode(null);
@@ -175,8 +177,10 @@ function renderSelect() {
   const s = app.select.state();
   $('lasso-btn').setAttribute('aria-pressed', String(s.mode === 'lasso'));
   $('box-btn').setAttribute('aria-pressed', String(s.mode === 'box'));
-  $('stage').classList.toggle('is-selecting', !!s.mode);
-  viewer.controls.noRotate = !!s.mode;
+  $('stage').classList.toggle('is-selecting', s.drawing);
+  viewer.controls.noRotate = s.drawing;
+  $('select-turn').setAttribute('aria-pressed', String(s.paused));
+  $('select-strip').classList.toggle('is-paused', s.paused);
   if ($('select-strip').hidden === !!s.mode) {
     $('select-strip').hidden = !s.mode;
     viewer.resize();
@@ -197,7 +201,7 @@ window.addEventListener('keydown', (e) => {
   if (e.target.closest?.('input, textarea, select')) return;
   if (e.key === 'f' || e.key === 'F') viewer?.fit();
   else if (e.key === 'h' || e.key === 'H') viewer?.viewFrom('home');
-  else if (e.key === 'Escape' && app.select?.active) app.select.setMode(null);
+  else if (e.key === 'Escape' && app.select?.active) app.select.togglePause();
   else if (tool?.active && curveKey(e)) e.preventDefault();
 });
 
