@@ -53,7 +53,7 @@ With the **Curve** tool on:
 | | |
 |---|---|
 | click on a mesh | start a curve, or add a point to it |
-| Enter, or click the last point again | finish the curve as it is |
+| Enter, or click the last point again | finish the curve as it is (a click must be right on the point; a double-click only adds a point) |
 | C, or click the first point again | close the curve into a loop (three points or more) |
 | Backspace | take the last point off |
 | Esc | remove the curve being drawn; again to leave the tool |

@@ -114,13 +114,89 @@ describe('drawing a curve', () => {
   });
 
   test('clicking the last point again finishes the curve', async () => {
-    const { model, clickOn } = setup();
+    const { model, clickOn, tool } = setup();
+    let now = 0;
+    tool.now = () => now;
     await clickOn(A);
     await clickOn(B);
+    now += 1000;
     assert.equal(await clickOn(B), 'finished');
     const [c] = curves(model);
     assert.equal(c.control_points.length, 2, 'no point is added twice');
     assert.equal(c.drawing, false);
+  });
+
+  // Reported on a 910,000-triangle humerus: points placed close together kept
+  // finishing the curve, and the next click started a new one. A click had to
+  // be within 1.8 handle radii of the last point, and handles are sized by the
+  // scene (about 3.5 mm on that bone), so zoomed in that was most of the screen.
+  describe('placing points close together', () => {
+    // Zoomed right in on the big ball: its front is 3 units from the camera.
+    function zoomedIn() {
+      const s = scene([0, 0, 8], [0, 0, 0]);
+      s.addMesh('big', ball(5));
+      s.addMesh('small', ball(2, 9));
+      s.tool.setActive(true);
+      let now = 0;
+      s.tool.now = () => now;
+      return { ...s, wait: (ms) => (now += ms) };
+    }
+    const px = (viewer, p) => screenOf(viewer, p);
+
+    test('a click a few pixels from the last point adds a point; it does not finish the curve', async () => {
+      const { tool, model, viewer, wait } = zoomedIn();
+      const [x, y] = px(viewer, front(0, 0));
+      assert.equal(await tool.click(x, y), 'started');
+      wait(1000);
+      // 10 px further on is well inside the handle's old reach (16 px here).
+      assert.equal(await tool.click(x + 10, y), 'added');
+      wait(1000);
+      assert.equal(await tool.click(x + 20, y), 'added');
+      wait(1000);
+      assert.equal(await tool.click(x + 30, y), 'added');
+      assert.equal(curves(model).length, 1, 'still one curve');
+      assert.equal(curves(model)[0].control_points.length, 4);
+    });
+
+    test('a click a few pixels from the first point adds a point; it does not close the loop', async () => {
+      const { tool, model, viewer, wait } = zoomedIn();
+      const [x, y] = px(viewer, front(0, 0));
+      for (const [dx, dy] of [[0, 0], [12, 0], [12, 12]]) {
+        await tool.click(x + dx, y + dy);
+        wait(1000);
+      }
+      assert.equal(await tool.click(x - 9, y + 3), 'added');
+      assert.equal(curves(model)[0].closed, false);
+      wait(1000);
+      // Right on the first point, it closes.
+      assert.equal(await tool.click(x, y), 'closed');
+    });
+
+    test('a double-click adds one point and does not finish the curve', async () => {
+      const { tool, model, viewer, wait } = zoomedIn();
+      const [x, y] = px(viewer, front(0, 0));
+      await tool.click(x, y);
+      wait(1000);
+      assert.equal(await tool.click(x + 20, y), 'added');
+      wait(150);
+      assert.equal(await tool.click(x + 20, y), 'double', 'the second click of a double-click');
+      wait(1000);
+      assert.equal(await tool.click(x + 40, y), 'added');
+      assert.equal(curves(model).length, 1);
+      assert.equal(curves(model)[0].control_points.length, 3);
+      assert.equal(curves(model)[0].drawing, true);
+    });
+
+    test('when a click on the last point does finish the curve, the hint says so', async () => {
+      const { tool, viewer, wait } = zoomedIn();
+      const [x, y] = px(viewer, front(0, 0));
+      await tool.click(x, y);
+      wait(1000);
+      await tool.click(x + 20, y);
+      wait(1000);
+      assert.equal(await tool.click(x + 20, y), 'finished');
+      assert.match(tool.state().hint, /^Curve 1 finished\. Click on a mesh to start a new curve\./);
+    });
   });
 
   test('Undo point takes points off from the end, and the curve with the last one', async () => {

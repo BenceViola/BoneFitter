@@ -17,6 +17,14 @@
 
 import { BIG_MESH } from './curve-engine.js';
 
+// A click finishes the curve (on its last point) or closes it (on its first)
+// only this close to the point on screen, in pixels, however far in the view
+// is zoomed; anything further away adds a point.
+export const ON_POINT_PX = 6;
+// The second click of a double-click on the point just placed is ignored, so
+// a double-click adds one point instead of adding it and finishing the curve.
+export const DOUBLE_CLICK_MS = 500;
+
 const HINTS = {
   start: 'Click on a mesh to start a curve.',
   one: 'Click to add points.',
@@ -24,6 +32,8 @@ const HINTS = {
   loop: 'Enter finishes the curve; C or a click on its first point closes it into a loop.',
   missed: 'That click was beside the mesh. Click on the mesh to add a point.',
   'other-mesh': 'That is another mesh. A curve stays on the mesh it started on.',
+  finished: '{name} finished. Click on a mesh to start a new curve.',
+  closed: '{name} closed into a loop. Click on a mesh to start a new curve.',
 };
 
 export class CurveTool extends EventTarget {
@@ -32,7 +42,10 @@ export class CurveTool extends EventTarget {
     Object.assign(this, { model, picker, engine, view, ui });
     this.active = false;
     this.draftId = null;
-    this.note = null; // the last thing that went wrong, for the hint
+    this.note = null; // the last thing that went wrong (or the curve just finished), for the hint
+    this.noteName = null;
+    this.now = () => Date.now(); // a clock tests can set
+    this.lastAdded = null; // { time, index } of the point placed last
     model.addEventListener('change', (e) => {
       if (e.detail.kind === 'remove' && this.draftId && !model.get(this.draftId)) {
         this.draftId = null;
@@ -59,22 +72,34 @@ export class CurveTool extends EventTarget {
   state() {
     const n = this.draft?.control_points.length ?? 0;
     const step = n === 0 ? 'start' : n === 1 ? 'one' : n === 2 ? 'more' : 'loop';
-    return { active: this.active, points: n, canFinish: n >= 2, canClose: n >= 3, hint: HINTS[this.note] || HINTS[step] };
+    const hint = (HINTS[this.note] || HINTS[step]).replace('{name}', this.noteName ?? 'The curve');
+    return { active: this.active, points: n, canFinish: n >= 2, canClose: n >= 3, hint };
   }
 
   /**
    * A click at a screen position. Returns what it did: 'started', 'added',
-   * 'closed', 'finished', 'missed' (nothing there) or 'other-mesh'.
+   * 'closed', 'finished', 'missed' (nothing there), 'other-mesh', or
+   * 'double' (the second click of a double-click, ignored).
    */
   async click(clientX, clientY) {
     if (!this.active) return 'off';
     const draft = this.draft;
     if (draft) {
-      const handle = this.view.handleAt(clientX, clientY);
+      const handle = this.view.handleAt(clientX, clientY, ON_POINT_PX);
       if (handle?.id === draft.id) {
         const n = draft.control_points.length;
-        if (handle.index === 0 && n >= 3) return this.close() ? 'closed' : 'missed';
-        if (handle.index === n - 1 && n >= 2) return this.finish() ? 'finished' : 'missed';
+        const last = this.lastAdded;
+        if (handle.index === n - 1 && last?.index === n - 1 && this.now() - last.time < DOUBLE_CLICK_MS) return 'double';
+        const name = draft.name;
+        const done = (code, ok) => {
+          if (!ok) return 'missed';
+          this.note = code;
+          this.noteName = name;
+          this._changed();
+          return code;
+        };
+        if (handle.index === 0 && n >= 3) return done('closed', this.close());
+        if (handle.index === n - 1 && n >= 2) return done('finished', this.finish());
       }
     }
     const hit = this.picker.pickAt(clientX, clientY);
@@ -85,6 +110,7 @@ export class CurveTool extends EventTarget {
       await this._prepare(hit.id);
       const node = this.model.add('curve', { parent: hit.id, path: 'geodesic', closed: false, drawing: true, control_points: [point] });
       this.draftId = node.id;
+      this.lastAdded = { time: this.now(), index: 0 };
       this.engine.refresh(node.id);
       this.model.select(node.id);
       this.note = null;
@@ -93,6 +119,7 @@ export class CurveTool extends EventTarget {
     }
     if (hit.id !== draft.parent) return this._miss('other-mesh');
     this.engine.set(draft.id, { control_points: [...draft.control_points, point] });
+    this.lastAdded = { time: this.now(), index: draft.control_points.length - 1 };
     this.note = null;
     this._changed();
     return 'added';

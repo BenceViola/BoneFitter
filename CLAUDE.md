@@ -74,7 +74,7 @@ This is the pattern for everything that depends on something else (curve → reg
 
 ## Deployment
 
-GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.11`) shows which version is live; raise it with each feature that goes live.
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.11.1`) shows which version is live; raise it with each feature that goes live.
 
 ## Writing for the UI
 
@@ -109,6 +109,10 @@ Raised in the design discussion; check with the owner before building on any of 
 - Orienting a mesh means aligning a coordinate system (built in v0.11) with the scene's axes.
 - A stored sign for plane normals and line directions, with a flip button.
 - Saving: a fitted primitive stores both its input (region, method) and its result, like curves in landmark-json; probably a `primitives` section in that format.
+
+## Clicking on a curve's own points (fixed in v0.11.1, reported by the owner)
+
+While a curve is drawn, a click on its last point finishes it and a click on its first point closes it. These clicks must be within `ON_POINT_PX` (6) screen pixels of the point (`handleAt(x, y, maxPixels)`); handles are sized by the scene, not the screen, so before this a click within about 1.8 handle radii (3.5 mm on a 246 mm humerus) counted, which zoomed in was most of the view: closely spaced points kept finishing the curve and the next click started a new one. The second click of a double-click (within `DOUBLE_CLICK_MS` on the point just placed) is ignored (`'double'`). When a click finishes or closes a curve, the strip says so ("Curve 3 finished. Click on a mesh to start a new curve."). Dragging a handle still uses the scene-sized reach.
 
 ## How regions work (built in v0.3 as proposed to the owner)
 

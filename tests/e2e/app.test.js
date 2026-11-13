@@ -1628,3 +1628,37 @@ describe('measuring and coordinate systems', () => {
     close([p.rows.x, p.rows.y, p.rows.z].map(Number), [0, d, 0], 0.005, 'the head along Y now');
   });
 });
+
+describe('curves with points close together (reported on a 910,000-triangle humerus)', () => {
+  test('zoomed in, points a few pixels apart and a double-click all go on one curve', async () => {
+    const page = await start();
+    // Zoom well in on the front of the shaft.
+    const front = [EXAMPLE.shaft.point[0], EXAMPLE.shaft.point[1] + 50, EXAMPLE.shaft.point[2] + EXAMPLE.shaft.radius];
+    await page.evaluate((p) => {
+      const { camera, controls } = window.__bf.viewer;
+      const offset = camera.position.clone().sub(controls.target).multiplyScalar(0.15);
+      controls.target.set(...p);
+      camera.position.copy(controls.target).add(offset);
+      controls.update();
+    }, front);
+    await page.locator('#curve-btn').click();
+    const box = await page.locator('#stage canvas').boundingBox();
+    const x = box.x + box.width / 2;
+    const y = box.y + box.height / 2;
+    assert.ok(await page.evaluate(([x, y]) => !!window.__bf.picker.pickAt(x, y), [x, y]), 'the shaft is under the middle of the view');
+    for (let i = 0; i < 5; i++) {
+      await page.mouse.click(x, y + 12 * i);
+      await page.waitForTimeout(600);
+    }
+    await page.mouse.dblclick(x, y + 72);
+    await page.waitForTimeout(600);
+    await page.mouse.click(x, y + 84);
+    const curves = await page.evaluate(() => [...window.__bf.model.nodes.values()].filter((n) => n.kind === 'curve').map((c) => [c.control_points.length, c.drawing]));
+    assert.deepEqual(curves, [[7, true]], 'one curve of seven points, still being drawn');
+    // A click right on the last point, a moment later, finishes it, and the strip says so.
+    await page.waitForTimeout(600);
+    await page.mouse.click(x, y + 84);
+    assert.match(await page.locator('#tool-hint').innerText(), /^Curve 1 finished\. Click on a mesh to start a new curve\./);
+    assert.equal(await page.evaluate(() => window.__bf.model.get(window.__bf.model.selectedId).drawing), false);
+  });
+});

@@ -200,10 +200,17 @@ export class SceneView {
 
   // The handle (clicked point of a curve) under a screen position:
   // { id, index }, or null. Only curves that show their handles count.
-  handleAt(clientX, clientY) {
+  //
+  // `maxPixels` also limits how far from the handle's centre on screen the
+  // cursor may be. Handles are sized by the scene, not the screen, so zoomed
+  // in they cover many pixels: a click meant for a new point next to one
+  // must not land on it (the Curve tool passes a few pixels).
+  handleAt(clientX, clientY, maxPixels = Infinity) {
     const ray = this.picker.rayAt(clientX, clientY);
     this.root.updateMatrixWorld(true);
+    const rect = this.viewer.renderer.domElement.getBoundingClientRect();
     const c = new THREE.Vector3();
+    const s = new THREE.Vector3();
     let best = null;
     for (const [id, obj] of this.objects) {
       if (!obj.userData.curve || !this.model.isShown(id)) continue;
@@ -211,6 +218,12 @@ export class SceneView {
         h.getWorldPosition(c);
         const r = h.scale.x;
         if (ray.distanceToPoint(c) > r * 1.8) return;
+        if (maxPixels !== Infinity) {
+          s.copy(c).project(this.viewer.camera);
+          const dx = rect.left + ((s.x + 1) / 2) * rect.width - clientX;
+          const dy = rect.top + ((1 - s.y) / 2) * rect.height - clientY;
+          if (Math.hypot(dx, dy) > maxPixels) return;
+        }
         const t = ray.origin.distanceTo(c);
         if (!best || t < best.t) best = { id, index, t, r };
       });
