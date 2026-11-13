@@ -161,6 +161,14 @@ function onOneMesh(verdict, node) {
   if (verdict !== true) return verdict;
   return node.parent ? true : `“${node.name}” is made from objects on more than one mesh, so it doesn't belong to one mesh to move.`;
 }
+const squarePlane = (id, label, title, inputs, method, short) => ({
+  id,
+  label,
+  title,
+  inputs,
+  short,
+  run: (ctx, nodes) => ctx.constructs.create('plane', method, nodes.map((n) => n.id)),
+});
 const orient = (id, label, title, inputs, method, short) => ({
   id,
   label,
@@ -231,6 +239,8 @@ export const MENUS = [
         inputs: ['curve'],
         run: (ctx, [curve]) => ctx.fits.create(curve.id, 'plane'),
       },
+      squarePlane('plane-line', 'Square to a line', 'A plane with the line as its normal, through the line\'s own point (a cylinder counts as its axis)', ['lineLike'], 'line-normal', 'Plane square to it'),
+      squarePlane('plane-line-point', 'Square to a line, through a point', 'A plane with the line as its normal, through a point you choose (a sphere counts as its centre)', ['lineLike', 'point'], 'line-normal-point', 'Plane square to it, through a point'),
     ],
   },
   {
@@ -270,6 +280,14 @@ export const MENUS = [
       orient('orient-frame', 'By a coordinate system', 'Move the mesh so a coordinate system on it lies on the scene\'s axes: its origin at the scene\'s origin', ['meshFrame'], 'frame', 'Orient by these axes'),
       orient('orient-line', 'By a line', 'Turn the mesh so a line on it points along an axis of the scene (Z at first), its point at the origin', ['meshLine'], 'line', 'Orient along this line'),
       orient('orient-plane', 'Stand on a plane', 'Turn the mesh so it stands on a plane: the plane\'s normal points down (−Z), its point at the origin', ['meshPlane'], 'plane', 'Stand on this plane'),
+      {
+        id: 'orient-apply',
+        label: 'Apply to the coordinates (new mesh)',
+        title: 'Make a new mesh whose coordinates are where this one now sits, with its work carried over; the original is kept, hidden',
+        inputs: ['movedMesh'],
+        short: 'Apply to the coordinates',
+        run: (ctx, [mesh]) => ctx.actions?.applyPlacement(mesh.id) ?? null,
+      },
       {
         id: 'orient-reset',
         label: 'Back to the file\'s position',

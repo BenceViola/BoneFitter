@@ -19,7 +19,7 @@ import { FIT_KINDS } from './fit-engine.js';
 import { isConstructed } from './construction-engine.js';
 
 export const SCENE_FORMAT = { name: 'bonefitter-scene', version: '0.1.0' };
-export const APP = { name: 'BoneFitter', version: '0.12' };
+export const APP = { name: 'BoneFitter', version: '0.13' };
 
 export class SceneFileError extends Error {}
 
@@ -32,7 +32,7 @@ const INPUTS = {
   region: ['boundary', 'flipped', 'selection', 'picked', 'strokes'],
   sphere: ['source', 'method', 'flipped'],
   cylinder: ['source', 'method', 'flipped'],
-  plane: ['source', 'method', 'flipped'],
+  plane: ['source', 'method', 'flipped', 'inputs'],
   line: ['method', 'inputs', 'flipped'],
   frame: ['method', 'inputs', 'primary', 'secondary'],
   measure: ['method', 'inputs'],
@@ -61,6 +61,7 @@ export function meshRecord(model, mesh) {
   if (mesh.example) rec.example = true;
   if (mesh.coordsFile) rec.coords_file = mesh.coordsFile;
   if (mesh.madeFrom) rec.made_from = clone(mesh.madeFrom);
+  if (mesh.appliedFrom) rec.applied_from = clone(mesh.appliedFrom);
   return rec;
 }
 
@@ -123,7 +124,7 @@ export function checkSceneDoc(doc, name) {
  * open. Throws SceneFileError naming the mesh files that are missing.
  * Returns { meshes, objects, ids } (ids: old id → new id).
  */
-export async function restoreScene(app, doc, name = null) {
+export async function restoreScene(app, doc, name = null, { meshMap = null } = {}) {
   const { model, view } = app;
   checkSceneDoc(doc, name ?? 'the scene');
   const what = name ? `“${name}”` : 'The scene';
@@ -134,7 +135,22 @@ export async function restoreScene(app, doc, name = null) {
 
   // Meshes first: those opened from files, then those made from regions of them.
   for (const rec of doc.meshes) {
+    // Meshes given (applying a placement carries work onto a new mesh).
+    if (meshMap?.[rec.id]) {
+      used.add(meshMap[rec.id]);
+      ids.set(rec.id, meshMap[rec.id]);
+      continue;
+    }
     let mesh = free(rec.sha256);
+    if (!mesh && rec.applied_from && ids.has(rec.applied_from.meshId)) {
+      const original = model.get(ids.get(rec.applied_from.meshId));
+      const { placedGeometry } = await import('./apply-placement.js');
+      const loaded = await loadMeshBuffer(stlBytes(placedGeometry(view.sources.get(original.id), rec.applied_from.placement)), rec.file);
+      if (loaded.sha256 === rec.sha256) {
+        mesh = model.add('mesh', meshFields(loaded, { format: 'placement applied', appliedFrom: clone(rec.applied_from), ...(original.example ? { example: true } : {}) }));
+        view.addMesh(mesh, loaded.geometry);
+      }
+    }
     if (!mesh && rec.example && app.loadExample) mesh = await app.loadExample();
     if (!mesh && rec.made_from?.faces && ids.has(rec.made_from.meshId)) {
       const original = model.get(ids.get(rec.made_from.meshId));
@@ -147,7 +163,8 @@ export async function restoreScene(app, doc, name = null) {
     }
     if (!mesh) {
       // A mesh made from a region of a missing mesh comes back with its original: name only the original.
-      if (!(rec.made_from?.faces && doc.meshes.some((m) => m.id === rec.made_from.meshId))) missing.push(rec.file || rec.name);
+      const from = rec.made_from?.faces ? rec.made_from.meshId : rec.applied_from?.meshId;
+      if (!(from && doc.meshes.some((m) => m.id === from))) missing.push(rec.file || rec.name);
       continue;
     }
     used.add(mesh.id);
@@ -160,6 +177,7 @@ export async function restoreScene(app, doc, name = null) {
     );
   }
   for (const rec of doc.meshes) {
+    if (meshMap?.[rec.id]) continue;
     model.update(ids.get(rec.id), { name: rec.name, placement: clone(rec.placement ?? null) });
     if (rec.visible === false) model.setVisible?.(ids.get(rec.id), false);
   }
@@ -184,8 +202,8 @@ export async function restoreScene(app, doc, name = null) {
     count++;
     if (rec.kind === 'curve') app.engine.refresh(node.id);
     else if (rec.kind === 'region') app.regions.refresh(node.id);
-    else if (FIT_KINDS.has(rec.kind)) app.fits.refresh(node.id);
     else if (isConstructed(node)) app.constructs.refresh(node.id);
+    else if (FIT_KINDS.has(rec.kind)) app.fits.refresh(node.id);
   }
   return { meshes: doc.meshes.length, objects: count, ids };
 }

@@ -21,6 +21,13 @@
 // ends, length, signed (perpendicular: the point's side of the plane), rms
 // and maxDeviation (fit-curve), error.
 //
+// A plane can be made too (kind 'plane' with inputs; a fitted plane has a
+// `source` instead, fit-engine.js):
+//   'line-normal'       square to a line, through the line's own point  inputs [line]
+//   'line-normal-point' square to a line, through a point             inputs [line, point]
+// Its normal is the line's direction (flipped with `flipped`). Computed:
+// point, normal, d (normal · x = d), size (how big it is drawn), error.
+//
 // A coordinate system (kind 'frame') has a `method`:
 //   'point-directions' an origin and two directions      inputs [point, direction, direction]
 //   'three-points'     origin, a point the first axis goes towards, a point the second leans to
@@ -75,7 +82,7 @@ import { midpoint, lineThrough, fitLineToPath, perpendicularTo, planesMeet, line
 import { nodeInScene, rotationBetween, turn } from './placement.js';
 import { pointToPoint, pointToLine, pointToPlane, lineToLine, angleBetween, cornerAngle, angleOnPlane, makeFrame, inFrame } from './measure.js';
 
-export const CONSTRUCT_KINDS = new Set(['point', 'line', 'frame', 'measure', 'orient']);
+export const CONSTRUCT_KINDS = new Set(['point', 'line', 'plane', 'frame', 'measure', 'orient']);
 
 const AXES = { '+x': [1, 0, 0], '-x': [-1, 0, 0], '+y': [0, 1, 0], '-y': [0, -1, 0], '+z': [0, 0, 1], '-z': [0, 0, -1] };
 export const ORIENT_AXES = Object.keys(AXES);
@@ -85,6 +92,7 @@ const EMPTY = {
   line: { point: null, direction: null, ends: null, length: 0, signed: 0, rms: 0, maxDeviation: 0 },
   frame: { origin: null, x: null, y: null, z: null },
   orient: { placement: null },
+  plane: { point: null, normal: null, d: null, size: 0 },
   measure: { value: null, values: null, segments: null, delta: null, signed: null, acute: null, between: null, parallel: null },
 };
 
@@ -148,7 +156,7 @@ export class ConstructionEngine {
   create(kind, method, inputs, fields = {}) {
     const meshes = new Set(inputs.map((id) => this.model.meshOf(id)?.id ?? null));
     const parent = meshes.size === 1 ? [...meshes][0] : null;
-    const extra = { line: { flipped: false }, frame: { primary: 'x', secondary: 'y' }, orient: { axis: method === 'plane' ? '-z' : '+z', name: 'Orientation' } }[kind] ?? {};
+    const extra = { line: { flipped: false }, plane: { flipped: false }, frame: { primary: 'x', secondary: 'y' }, orient: { axis: method === 'plane' ? '-z' : '+z', name: 'Orientation' } }[kind] ?? {};
     if (kind === 'orient') {
       // One orientation per mesh: a new one takes the place of the old.
       for (const old of this.model.children(parent).filter((n) => n.kind === 'orient')) this.model.remove(old.id);
@@ -183,6 +191,19 @@ export class ConstructionEngine {
     if (mesh?.kind === 'mesh') this.model.update(mesh.id, { placement: node.error ? null : node.placement });
   }
 
+  // A plane square to a line.
+  _plane(node, inputs) {
+    const fail = (error) => ({ ...EMPTY.plane, error });
+    const line = shapeOf(inputs[0]);
+    if (line?.kind !== 'line') return fail('input');
+    const point = node.method === 'line-normal-point' ? positionOf(inputs[1]) : line.point;
+    if (!point) return fail('input');
+    const normal = node.flipped ? line.direction.map((v) => -v || 0) : line.direction.slice();
+    const d = normal[0] * point[0] + normal[1] * point[1] + normal[2] * point[2];
+    // Drawn a quarter as wide as the line is long (at least 5 units).
+    return { point: point.slice(), normal, d, size: Math.max((inputs[0].length || 0) / 4, 5), error: null };
+  }
+
   _orient(node, input) {
     const fail = (error) => ({ placement: null, error });
     const s = shapeOf(input);
@@ -207,6 +228,7 @@ export class ConstructionEngine {
     const inputs = node.inputs.map((id) => this._input(node, id));
     if (inputs.some((n) => !n)) return fail('no-input');
     if (node.kind === 'orient') return this._orient(node, inputs[0]);
+    if (node.kind === 'plane') return this._plane(node, inputs);
     if (node.kind === 'frame' || node.kind === 'measure') {
       const shapes = inputs.map(shapeOf);
       if (shapes.some((s) => !s)) return fail('input');

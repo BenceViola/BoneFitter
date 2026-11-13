@@ -96,7 +96,7 @@ export function describe(model, id, opts = {}) {
     copy = ['id\tname\tstatus\tx\ty\tz', ...points.map((p) => pointLine(inScene ? nodeInScene(p, mesh.placement) : p))].join('\n');
   } else if (node.kind === 'point' && node.method) {
     copy = describeMade(model, node, rows, space);
-  } else if (node.kind === 'line') {
+  } else if (node.kind === 'line' || (node.kind === 'plane' && node.inputs)) {
     copy = describeMade(model, node, rows, space);
   } else if (node.kind === 'frame') {
     copy = describeFrame(model, node, rows, space);
@@ -292,6 +292,8 @@ function madeAs(model, node) {
     case 'fit-curve': return `Fitted to ${name(0)} (its path)`;
     case 'perpendicular': return `Perpendicular to ${name(0)}, through ${name(1)}`;
     case 'planes': return `Where ${name(0)} and ${name(1)} meet`;
+    case 'line-normal': return `Square to ${name(0)}, through its point`;
+    case 'line-normal-point': return `Square to ${name(0)}, through ${name(1)}`;
     case 'point-directions': return `Origin at ${name(0)}; ${P} along ${name(1)}, ${S} towards ${name(2)}`;
     case 'three-points': return `Origin at ${name(0)}; ${P} towards ${name(1)}, ${S} towards ${name(2)}`;
     case 'points':
@@ -329,6 +331,15 @@ function describeMade(model, node, rows, space) {
     return ['name\tmade_as\tx\ty\tz', [node.name, how, ...node.position].join('\t')].join('\n');
   }
   xyz('Point ', node.point);
+  if (node.kind === 'plane') {
+    xyz('Normal ', node.normal, dir);
+    rows.push(['Equation', `${node.normal.map(dir).map((v, i) => `${v}·${'xyz'[i]}`).join(' + ').replace(/\+ -/g, '− ')} = ${num(node.d)}`, true]);
+    rows.push(['Coordinates', space]);
+    return [
+      'name\tmade_as\tpoint_x\tpoint_y\tpoint_z\tnormal_x\tnormal_y\tnormal_z\td',
+      [node.name, how, ...node.point, ...node.normal, node.d].join('\t'),
+    ].join('\n');
+  }
   xyz('Direction ', node.direction, dir);
   const LENGTH = {
     'two-points': 'Distance between the points',
@@ -583,7 +594,9 @@ export function setupProperties(el, { model, copyText, app }) {
     } else if (e.target.id === 'prop-save-stl' || e.target.id === 'prop-save-ply') {
       await app.saveMesh(id, e.target.id === 'prop-save-stl' ? 'stl' : 'ply');
     } else if (e.target.id === 'prop-flip-fit') {
-      app.fits.set(id, { flipped: !model.get(id).flipped });
+      // A plane square to a line is made, not fitted.
+      if (model.get(id).inputs) app.constructs.set(id, { flipped: !model.get(id).flipped });
+      else app.fits.set(id, { flipped: !model.get(id).flipped });
     } else if (e.target.id === 'prop-flip-line') {
       app.constructs.set(id, { flipped: !model.get(id).flipped });
     } else if (e.target.id === 'prop-flip') {

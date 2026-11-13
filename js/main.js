@@ -19,6 +19,7 @@ import { RegionEngine } from './region-engine.js';
 import { SelectTool } from './select-tool.js';
 import { FitEngine } from './fit-engine.js';
 import { ConstructionEngine } from './construction-engine.js';
+import { applyPlacement } from './apply-placement.js';
 import { PointTool } from './point-tool.js';
 import { CommandRunner } from './command-runner.js';
 import { MENUS } from './commands.js';
@@ -81,7 +82,13 @@ if (webgl) {
   app.select = new SelectTool({ model, picker, view, viewer, regions: app.regions, ui: app });
   app.constructs = new ConstructionEngine(model);
   app.points = new PointTool({ model, picker, view, constructs: app.constructs });
-  app.commands = new CommandRunner({ model, regions: app.regions, fits: app.fits, constructs: app.constructs });
+  app.commands = new CommandRunner({
+    model,
+    regions: app.regions,
+    fits: app.fits,
+    constructs: app.constructs,
+    actions: { applyPlacement: (id) => applyWithNote(id) },
+  });
   setupInteraction({
     stage: $('stage'),
     viewer,
@@ -171,6 +178,24 @@ function run(id) {
   }
   if (r.status === 'tool' && r.tool === 'point') usePointTool(true);
   return r;
+}
+
+// Orient ▸ Apply to the coordinates: a new mesh, which takes a moment on a big one.
+async function applyWithNote(meshId) {
+  const mesh = model.get(meshId);
+  setBusy(`Making “${mesh.name}” with its new coordinates…`);
+  await nextFrame();
+  try {
+    const node = await applyPlacement(app, meshId);
+    if (node) {
+      showMessage('note', [
+        `Made “${node.name}”: its coordinates are where “${mesh.name}” sat, and its work came along. “${mesh.name}” is kept as it was, hidden. To keep the new mesh, save it (Save as STL in its Properties) and save the scene.`,
+      ]);
+    }
+    return node;
+  } finally {
+    setBusy(null);
+  }
 }
 
 // The Point tool on (the others off) or off.

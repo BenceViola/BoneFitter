@@ -16,9 +16,9 @@ import { COMMANDS, INPUTS } from './commands.js';
 const KIND_WORDS = { mesh: 'a mesh', group: 'a landmark file', point: 'a point', line: 'a line', frame: 'a coordinate system', measure: 'a measurement', orient: 'an orientation', curve: 'a curve', region: 'a region', sphere: 'a sphere', cylinder: 'a cylinder', plane: 'a plane' };
 
 export class CommandRunner extends EventTarget {
-  constructor({ model, regions, fits, constructs }) {
+  constructor({ model, regions, fits, constructs, actions = {} }) {
     super();
-    this.ctx = { model, regions, fits, constructs };
+    this.ctx = { model, regions, fits, constructs, actions };
     this.model = model;
     this.command = null; // the command that is asking, or null
     this.picked = []; // the inputs given so far
@@ -147,6 +147,16 @@ export class CommandRunner extends EventTarget {
     this.picked = [];
     const made = command.run(this.ctx, picked);
     this._changed();
+    // A command that takes a while (making a new mesh) finishes later.
+    if (typeof made?.then === 'function') {
+      return {
+        status: 'pending',
+        done: made.then((node) => {
+          if (node) this.model.select(node.id);
+          return node;
+        }),
+      };
+    }
     if (!made) return { status: 'failed' };
     this.model.select(made.id);
     return { status: 'done', node: made };

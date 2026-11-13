@@ -1152,7 +1152,7 @@ describe('menus, the tool rail and the prompts that ask for what a command needs
     assert.equal(await list.isHidden(), true);
     await page.locator('#plane-menu').click();
     assert.equal(await page.locator('#plane-menu').getAttribute('aria-expanded'), 'true');
-    assert.deepEqual(await list.locator('button').allInnerTexts(), ['Fit to a region', 'Fit to a curve']);
+    assert.deepEqual(await list.locator('button').allInnerTexts(), ['Fit to a region', 'Fit to a curve', 'Square to a line', 'Square to a line, through a point']);
     // Under its button, over the 3D view.
     const [b, l] = [await box(page, '#plane-menu'), await list.boundingBox()];
     assert.ok(l.y >= b.y + b.height && Math.abs(l.x - b.x) < 2);
@@ -1786,5 +1786,79 @@ describe('orienting meshes, and saving and opening the scene', () => {
     const page = await start({ init: noDialog });
     const [download] = await Promise.all([page.waitForEvent('download'), page.keyboard.press('Control+s')]);
     assert.equal(download.suggestedFilename(), 'example-femur.bonefitter.json');
+  });
+});
+
+describe('applying a placement, and a plane square to a line', () => {
+  const unit = (v) => v.map((x) => x / Math.hypot(...v));
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const HOME = unit([0.45, 0.35, 1]);
+  const E1 = unit(cross(HOME, [0, 1, 0]));
+  const E2 = cross(HOME, E1);
+  const onBall = (c, R, angle, t) => {
+    const a = (angle * Math.PI) / 180;
+    return c.map((v, i) => v + R * (Math.cos(a) * HOME[i] + Math.sin(a) * (Math.cos(t) * E1[i] + Math.sin(t) * E2[i])));
+  };
+  const loop = (c, R, angle, n = 8) => Array.from({ length: n }, (_, k) => onBall(c, R, angle, (2 * Math.PI * k) / n));
+  const select = (page, name) => page.locator(`#tree .tree-name[title="${name}"]`).click();
+  const close = (a, b, tol, msg) => a.forEach((v, i) => assert.ok(Math.abs(v - b[i]) <= tol, `${msg} [${i}] ${v} ≉ ${b[i]}`));
+  const vec = (p, label) => ['x', 'y', 'z'].map((a) => Number(p.rows[`${label}${a}`]));
+  async function capSphere(page, c, R) {
+    await page.locator('#curve-btn').click();
+    for (const p of loop(c, R, 35)) await clickAt(page, await onScreen(page, p));
+    await page.keyboard.press('c');
+    await page.locator('#pointer-btn').click();
+    await page.locator('#prop-make [data-make="sphere-fit"]').click();
+  }
+
+  test('Orient ▸ Apply to the coordinates: a new mesh with the work, where the original sat; the original hidden', async () => {
+    const page = await start();
+    await capSphere(page, EXAMPLE.head.centre, EXAMPLE.head.radius);
+    await select(page, 'Region 1');
+    await page.locator('#prop-make [data-make="plane-fit"]').click();
+    await choose(page, 'orient-plane');
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'orient');
+    await select(page, 'Sphere 1');
+    const shown = vec(await properties(page), 'Centre ');
+    await select(page, 'Example femur');
+    await page.locator('#prop-make [data-make="orient-apply"]').click();
+    await page.waitForFunction(() => window.__bf.model.selected?.name === 'Example femur (oriented)');
+    assert.match(await messageText(page), /^Made “Example femur \(oriented\)”: its coordinates are where “Example femur” sat/);
+    const p = await properties(page);
+    assert.equal(p.rows.Placement, 'where its file puts it');
+    assert.equal(await page.evaluate(() => window.__bf.model.meshes()[0].visible), false, 'the original is hidden');
+    // The sphere on the new mesh: in its own coordinates, where the original's was shown.
+    const sphere = await page.evaluate(() => {
+      const m = window.__bf.model.selected;
+      const s = [...window.__bf.model.nodes.values()].find((n) => n.kind === 'sphere' && window.__bf.model.meshOf(n.id)?.id === m.id);
+      return s.centre;
+    });
+    close(sphere, shown, 0.005, 'the new mesh\'s sphere');
+    assert.equal(await page.evaluate(() => [...window.__bf.model.nodes.values()].filter((n) => n.kind === 'orient').length), 1, 'the orientation stays with the original');
+  });
+
+  test('Plane ▸ Square to a line: the line is its normal; it follows the line', async () => {
+    const page = await start();
+    await capSphere(page, EXAMPLE.head.centre, EXAMPLE.head.radius);
+    await capSphere(page, EXAMPLE.condyles[0].centre, EXAMPLE.condyles[0].radius);
+    await page.locator('#prop-make [data-make="line-two-points"]').click();
+    await select(page, 'Sphere 1');
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'line');
+    const line = await properties(page);
+    await page.locator('#prop-make [data-make="plane-line"]').click();
+    const plane = await properties(page);
+    assert.equal(plane.name, 'Plane 1');
+    assert.equal(plane.rows['Made as'], 'Square to Line 1, through its point');
+    assert.deepEqual(vec(plane, 'Normal '), vec(line, 'Direction '));
+    assert.deepEqual(vec(plane, 'Point '), vec(line, 'Point '));
+    // Flip the plane: its normal turns, the line doesn't.
+    await page.locator('#prop-flip-fit').click();
+    close(vec(await properties(page), 'Normal '), vec(line, 'Direction ').map((v) => -v), 1e-3, 'flipped');
+    // Through another point: the condyle's centre.
+    await select(page, 'Line 1');
+    await choose(page, 'plane-line-point');
+    await select(page, 'Sphere 2');
+    await page.waitForFunction(() => window.__bf.model.selected?.name === 'Plane 2');
+    close(vec(await properties(page), 'Point '), EXAMPLE.condyles[0].centre, 0.005, 'through the condyle centre');
   });
 });

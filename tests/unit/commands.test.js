@@ -22,11 +22,11 @@ describe('the list of commands', () => {
       ['region', 'Region', ['region-loop']],
       ['sphere', 'Sphere', ['sphere-fit']],
       ['cylinder', 'Cylinder', ['cylinder-fit']],
-      ['plane', 'Plane', ['plane-fit', 'plane-curve']],
+      ['plane', 'Plane', ['plane-fit', 'plane-curve', 'plane-line', 'plane-line-point']],
       ['point', 'Point', ['point-surface', 'point-centre', 'point-centroid', 'point-midpoint', 'point-line-plane']],
       ['line', 'Line', ['line-two-points', 'line-axis', 'line-curve', 'line-perpendicular', 'line-planes']],
       ['frame', 'Axes', ['frame-directions', 'frame-points']],
-      ['orient', 'Orient', ['orient-frame', 'orient-line', 'orient-plane', 'orient-reset']],
+      ['orient', 'Orient', ['orient-frame', 'orient-line', 'orient-plane', 'orient-apply', 'orient-reset']],
       ['measure', 'Measure', ['measure-points', 'measure-point-to', 'measure-lines', 'measure-angle', 'measure-corner', 'measure-on-plane', 'measure-coords']],
     ]);
     for (const m of MENUS) {
@@ -382,5 +382,22 @@ describe('orienting from the menu', () => {
     const r = runner.start('orient-line');
     assert.equal(r.status, 'nothing');
     assert.match(r.message, /made from objects on more than one mesh/);
+  });
+});
+
+describe('a command that takes a while', () => {
+  test('Orient ▸ Apply to the coordinates hands the mesh to the app, and selects the new mesh when it is ready', async () => {
+    const s = setup({ region: true });
+    const { CommandRunner } = await import('../../js/command-runner.js');
+    let asked = null;
+    const made = s.model.add('mesh', { name: 'New', faceCount: 0 });
+    const runner = new CommandRunner({ ...s, actions: { applyPlacement: async (id) => ((asked = id), made) } });
+    s.model.update(s.mesh.id, { placement: { rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: [1, 0, 0] } });
+    s.model.select(s.mesh.id);
+    const r = runner.start('orient-apply');
+    assert.equal(r.status, 'pending');
+    assert.equal(await r.done, made);
+    assert.equal(asked, s.mesh.id);
+    assert.equal(s.model.selectedId, made.id);
   });
 });

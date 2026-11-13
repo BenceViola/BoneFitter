@@ -201,3 +201,34 @@ describe('keeping up with their inputs', () => {
     assert.deepEqual(model.get(lm.id).position, [3, 2, 1]);
   });
 });
+
+describe('a plane square to a line', () => {
+  test('through the line\'s own point, or through another point; it follows the line, and flips with it', () => {
+    const { constructs, capA, capB, model } = twoBalls();
+    const line = constructs.create('line', 'two-points', [capA.sphere.id, capB.sphere.id]);
+    const p = constructs.create('plane', 'line-normal', [line.id]);
+    assert.equal(p.kind, 'plane');
+    assert.equal(model.get(p.id).name, 'Plane 1');
+    nearVec(p.normal, line.direction, 1e-12);
+    nearVec(p.point, line.point, 1e-12);
+    near(p.d, line.point.reduce((s, v, i) => s + v * line.direction[i], 0), 1e-9);
+    assert.ok(p.size > 0, 'drawn at a size');
+    assert.equal(p.error, null);
+    const q = constructs.create('plane', 'line-normal-point', [line.id, capB.sphere.id]);
+    nearVec(q.point, capB.sphere.centre, 1e-12);
+    constructs.set(line.id, { flipped: true });
+    nearVec(q.normal, line.direction, 1e-12, 'the normal follows the line');
+    // A plane made this way works wherever a plane is asked for.
+    const d = constructs.create('measure', 'point-plane', [capA.sphere.id, q.id]);
+    near(d.value, 40, 1e-3);
+  });
+
+  test('a line with no result gives a plane with none, and why', () => {
+    const { constructs, capA } = twoBalls();
+    const c = constructs.create('point', 'centre', [capA.sphere.id]);
+    const line = constructs.create('line', 'two-points', [c.id, capA.sphere.id]);
+    const p = constructs.create('plane', 'line-normal', [line.id]);
+    assert.equal(p.error, 'input');
+    assert.equal(p.normal, null);
+  });
+});
