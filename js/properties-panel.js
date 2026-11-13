@@ -6,6 +6,7 @@
 const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c]);
 const int = (n) => Number(n).toLocaleString('en-US');
 const num = (n) => Number(n).toFixed(3);
+import { isMoved, nodeInScene } from './placement.js';
 import { capAngle } from './fit.js';
 import { FIT_KINDS } from './fit-engine.js';
 
@@ -16,7 +17,7 @@ const dir = (n) => Number(n).toFixed(4);
 // Below this cap angle (degrees) a fitted sphere's size is poorly fixed.
 const SHALLOW_CAP = 30;
 
-const KIND = { mesh: 'Mesh', group: 'Landmark file', point: 'Point', line: 'Line', frame: 'Coordinate system', measure: 'Measurement', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
+const KIND = { mesh: 'Mesh', group: 'Landmark file', point: 'Point', line: 'Line', frame: 'Coordinate system', measure: 'Measurement', orient: 'Orientation', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
 
 // Why curves give no region, for the person looking at it.
 const REGION_PROBLEMS = {
@@ -35,15 +36,22 @@ const REGION_PROBLEMS = {
  * mono?]], copy } where `copy` is the text the Copy button puts on the
  * clipboard (null when there is nothing worth copying).
  */
-export function describe(model, id) {
-  const node = model.get(id);
-  if (!node) return null;
+// `opts.space`: 'scene' (the default) or 'file'. For something on a mesh that
+// has been moved, numbers are shown where it now is in the scene, or as in
+// the mesh file; `moved` says whether there is a difference to choose.
+export function describe(model, id, opts = {}) {
+  const stored = model.get(id);
+  if (!stored) return null;
   const mesh = model.meshOf(id);
+  const moved = !!mesh && stored.kind !== 'mesh' && isMoved(mesh.placement);
+  const inScene = moved && opts.space !== 'file';
+  const node = inScene ? nodeInScene(stored, mesh.placement) : stored;
   const rows = [];
   let copy = null;
-  // Coordinates of something attached to a mesh are the mesh file's own.
+  // Coordinates of something attached to a mesh are the mesh file's own,
+  // unless the mesh has been moved and they are shown in the scene.
   // A mesh made from a region keeps the coordinates of the file it came from.
-  const space = mesh ? `as in ${mesh.coordsFile ?? mesh.file}` : 'of the scene';
+  const space = !mesh ? 'of the scene' : inScene ? `of the scene (${mesh.name} has been moved)` : `as in ${mesh.coordsFile ?? mesh.file}`;
 
   if (node.kind === 'mesh') {
     const size = node.box ? node.box.max.map((v, i) => v - node.box.min[i]) : null;
@@ -61,9 +69,20 @@ export function describe(model, id) {
     if (size) rows.push(['Size (x × y × z)', size.map(num).join(' × '), true]);
     if (from) rows.push(['Coordinates', space]);
     if (node.sha256) rows.push(['SHA-256', `${node.sha256.slice(0, 12)}…`, true]);
+    const pl = isMoved(node.placement) ? node.placement : null;
+    if (pl) {
+      const by = model.children(id).find((n) => n.kind === 'orient');
+      rows.push(['Placement', by ? `moved by ${by.name}` : 'moved']);
+      pl.rotation.forEach((row, i) => rows.push([`Turn, row ${i + 1}`, row.map(dir).join('  '), true]));
+      rows.push(['Shift', pl.translation.map(num).join('  '), true]);
+      rows.push(['Note', 'Scene = turn × file coordinates + shift. The file and what is stored keep the file\'s coordinates.']);
+    } else {
+      rows.push(['Placement', 'where its file puts it']);
+    }
+    const flat = pl ? [...pl.rotation.flat(), ...pl.translation] : [1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0];
     copy = [
-      'name\tfile\tmade_from\ttriangles\tvertices\tsurface_area',
-      [node.name, from ? '' : node.file, from ? `${from.region} of ${from.mesh}` : '', node.faceCount, node.vertexCount, node.area ?? 0].join('\t'),
+      'name\tfile\tmade_from\ttriangles\tvertices\tsurface_area\tr11\tr12\tr13\tr21\tr22\tr23\tr31\tr32\tr33\tshift_x\tshift_y\tshift_z',
+      [node.name, from ? '' : node.file, from ? `${from.region} of ${from.mesh}` : '', node.faceCount, node.vertexCount, node.area ?? 0, ...flat].join('\t'),
     ].join('\n');
   } else if (node.kind === 'group') {
     const points = model.children(id).filter((n) => n.kind === 'point');
@@ -74,7 +93,7 @@ export function describe(model, id) {
     if (node.operator) rows.push(['Operator', node.operator]);
     rows.push(['Landmarks', missing ? `${points.length - missing} placed, ${missing} missing` : String(points.length)]);
     rows.push(['Coordinates', space]);
-    copy = ['id\tname\tstatus\tx\ty\tz', ...points.map(pointLine)].join('\n');
+    copy = ['id\tname\tstatus\tx\ty\tz', ...points.map((p) => pointLine(inScene ? nodeInScene(p, mesh.placement) : p))].join('\n');
   } else if (node.kind === 'point' && node.method) {
     copy = describeMade(model, node, rows, space);
   } else if (node.kind === 'line') {
@@ -139,8 +158,36 @@ export function describe(model, id) {
     }
   } else if (FIT_KINDS.has(node.kind)) {
     copy = describeFit(model, node, rows, space);
+  } else if (node.kind === 'orient') {
+    copy = describeOrient(model, node, rows);
   }
-  return { title: node.name, kind: KIND[node.kind], rows, copy };
+  return { title: node.name, kind: KIND[node.kind], rows, copy, moved, space: inScene ? 'scene' : 'file' };
+}
+
+const AXIS_WORDS = { '+x': '+X', '-x': '−X', '+y': '+Y', '-y': '−Y', '+z': '+Z', '-z': '−Z' };
+
+function describeOrient(model, node, rows) {
+  const input = model.get(node.inputs[0]);
+  const name = input?.name ?? '?';
+  const mesh = model.get(node.parent);
+  const how = {
+    frame: `${name} put on the scene's axes: its origin at the scene's origin, its X, Y and Z along the scene's`,
+    line: `${name} turned to point along ${AXIS_WORDS[node.axis]}, its point at the scene's origin`,
+    plane: `Standing on ${name}: its normal along ${AXIS_WORDS[node.axis]}, its point at the scene's origin`,
+  }[node.method];
+  rows.push(['Moves', mesh?.name ?? '?']);
+  rows.push(['How', how]);
+  if (node.error) {
+    rows.push(['Problem', `“${name}” has no result at the moment, so ${mesh?.name ?? 'the mesh'} is back where its file puts it.`]);
+    return null;
+  }
+  if (node.method !== 'frame') rows.push(['Note', 'Of all the turns that do this, the smallest is used. To fix the turn about that axis as well, orient by a coordinate system.']);
+  node.placement.rotation.forEach((row, i) => rows.push([`Turn, row ${i + 1}`, row.map(dir).join('  '), true]));
+  rows.push(['Shift', node.placement.translation.map(num).join('  '), true]);
+  return [
+    'name\tmoves\thow\tr11\tr12\tr13\tr21\tr22\tr23\tr31\tr32\tr33\tshift_x\tshift_y\tshift_z',
+    [node.name, mesh?.name ?? '', how, ...node.placement.rotation.flat(), ...node.placement.translation].join('\t'),
+  ].join('\n');
 }
 
 // The rows for a fitted primitive. Returns the text to copy, or null.
@@ -408,8 +455,10 @@ function pointLine(p) {
 
 // `app.regions`, `app.commands` and the rest are looked up when needed: they are made after this panel.
 export function setupProperties(el, { model, copyText, app }) {
+  // Show numbers in the scene (where moved meshes now are) or as in the mesh files.
+  let space = 'scene';
   function render() {
-    const d = describe(model, model.selectedId);
+    const d = describe(model, model.selectedId, { space });
     if (!d) {
       el.innerHTML = '<p class="props-empty">Select an object in the list or in the 3D view to see its numbers.</p>';
       return;
@@ -451,11 +500,29 @@ export function setupProperties(el, { model, copyText, app }) {
             <label for="prop-secondary">The second gives</label>${axisSelect('prop-secondary', node.secondary)}
           </div>`
         : '';
+    // An orientation along a line or a plane: which scene axis.
+    const orientRow =
+      node.kind === 'orient' && node.method !== 'frame'
+        ? `<div class="props-axes">
+            <label for="prop-orient-axis">${node.method === 'plane' ? 'The normal points along' : 'The line points along'}</label>
+            <select id="prop-orient-axis">${Object.entries(AXIS_WORDS).map(([k, w]) => `<option value="${k}"${k === node.axis ? ' selected' : ''}>${w}</option>`).join('')}</select>
+          </div>`
+        : '';
     el.innerHTML = `
       <div class="props-head">
         <input type="text" id="prop-name" aria-label="Name" value="${esc(d.title)}">
       </div>
       <div class="props-kind">${d.kind}</div>
+      ${
+        d.moved
+          ? `<div class="props-space" role="group" aria-label="Coordinates shown">
+              <span>Coordinates</span>
+              <button type="button" class="btn small" id="prop-space-scene" aria-pressed="${d.space === 'scene'}" title="Where it is now that its mesh has been moved">In the scene</button>
+              <button type="button" class="btn small" id="prop-space-file" aria-pressed="${d.space === 'file'}" title="As in the mesh file, as stored and saved">As in the file</button>
+            </div>`
+          : ''
+      }
+      ${orientRow}
       <dl class="props-list">
         ${d.rows.map(([k, v, mono]) => (k === 'Problem' ? `<dd class="problem" style="grid-column: 1 / -1">${esc(v)}</dd>` : `<dt>${esc(k)}</dt><dd${mono ? ' class="mono"' : ''}>${esc(v)}</dd>`)).join('')}
       </dl>
@@ -474,6 +541,11 @@ export function setupProperties(el, { model, copyText, app }) {
   }
 
   el.addEventListener('change', (e) => {
+    if (e.target.id === 'prop-orient-axis') {
+      app.constructs.set(model.selectedId, { axis: e.target.value });
+      app.frameView?.();
+      return;
+    }
     if (e.target.id === 'prop-primary' || e.target.id === 'prop-secondary') {
       // Choosing the axis the other direction gives swaps the two.
       const node = model.selected;
@@ -496,6 +568,11 @@ export function setupProperties(el, { model, copyText, app }) {
 
   el.addEventListener('click', async (e) => {
     const id = model.selectedId;
+    if (e.target.id === 'prop-space-scene' || e.target.id === 'prop-space-file') {
+      space = e.target.id === 'prop-space-file' ? 'file' : 'scene';
+      render();
+      return;
+    }
     if (e.target.dataset.make) {
       app.run(e.target.dataset.make);
     } else if (e.target.id === 'prop-remove') {
@@ -512,7 +589,7 @@ export function setupProperties(el, { model, copyText, app }) {
     } else if (e.target.id === 'prop-flip') {
       app.regions.set(id, { flipped: !model.get(id).flipped });
     } else if (e.target.id === 'prop-copy') {
-      const ok = await copyText(describe(model, id).copy);
+      const ok = await copyText(describe(model, id, { space }).copy);
       e.target.textContent = ok ? 'Copied' : 'Could not copy';
       setTimeout(() => {
         if (e.target.isConnected) e.target.textContent = 'Copy numbers';

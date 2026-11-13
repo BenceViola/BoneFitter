@@ -44,6 +44,20 @@
 // delta (points), signed (point-plane), acute and between (angle),
 // parallel (lines), error.
 //
+// An orientation (kind 'orient', one per mesh, hanging under it) places
+// its mesh in the scene: it sets the mesh's `placement` (placement.js).
+//   'frame' the coordinate system's origin to the scene's origin, its axes onto the scene's  inputs [frame]
+//   'line'  the line turned onto `axis` ('+x' … '-z', default '+z'), its point to the origin  inputs [line]
+//   'plane' the plane's normal turned onto `axis` (default '-z': standing on it), its point to the origin  inputs [plane]
+// Its inputs are on the mesh it moves (file coordinates), so moving the mesh
+// never changes them. Computed: placement, error. Removing it puts the mesh
+// back where its file has it.
+//
+// Coordinates: what hangs under a mesh is in that mesh file's coordinates;
+// what is made from objects on different meshes (global, top level) is in
+// scene coordinates, its inputs moved with their meshes' placements first,
+// and it is made again when one of those meshes moves.
+//
 // Wherever a point is asked for, a sphere stands for its centre; wherever
 // a line is asked for, a cylinder stands for its axis; a plane that gives
 // a direction gives its normal.
@@ -58,14 +72,19 @@
 // must be brought into scene coordinates here first.
 
 import { midpoint, lineThrough, fitLineToPath, perpendicularTo, planesMeet, lineMeetsPlane } from './construct.js';
+import { nodeInScene, rotationBetween, turn } from './placement.js';
 import { pointToPoint, pointToLine, pointToPlane, lineToLine, angleBetween, cornerAngle, angleOnPlane, makeFrame, inFrame } from './measure.js';
 
-export const CONSTRUCT_KINDS = new Set(['point', 'line', 'frame', 'measure']);
+export const CONSTRUCT_KINDS = new Set(['point', 'line', 'frame', 'measure', 'orient']);
+
+const AXES = { '+x': [1, 0, 0], '-x': [-1, 0, 0], '+y': [0, 1, 0], '-y': [0, -1, 0], '+z': [0, 0, 1], '-z': [0, 0, -1] };
+export const ORIENT_AXES = Object.keys(AXES);
 
 const EMPTY = {
   point: { position: null },
   line: { point: null, direction: null, ends: null, length: 0, signed: 0, rms: 0, maxDeviation: 0 },
   frame: { origin: null, x: null, y: null, z: null },
+  orient: { placement: null },
   measure: { value: null, values: null, segments: null, delta: null, signed: null, acute: null, between: null, parallel: null },
 };
 
@@ -129,22 +148,65 @@ export class ConstructionEngine {
   create(kind, method, inputs, fields = {}) {
     const meshes = new Set(inputs.map((id) => this.model.meshOf(id)?.id ?? null));
     const parent = meshes.size === 1 ? [...meshes][0] : null;
-    const extra = { line: { flipped: false }, frame: { primary: 'x', secondary: 'y' } }[kind] ?? {};
+    const extra = { line: { flipped: false }, frame: { primary: 'x', secondary: 'y' }, orient: { axis: method === 'plane' ? '-z' : '+z', name: 'Orientation' } }[kind] ?? {};
+    if (kind === 'orient') {
+      // One orientation per mesh: a new one takes the place of the old.
+      for (const old of this.model.children(parent).filter((n) => n.kind === 'orient')) this.model.remove(old.id);
+    }
     if (kind === 'measure' && !fields.name) {
       // "Distance 2", "Angle 1": counted for each sort of measurement.
       const word = MEASURE_NAME[MEASURE_UNIT[method]];
-      this._counts ??= {};
-      this._counts[word] = (this._counts[word] ?? 0) + 1;
-      extra.name = `${word} ${this._counts[word]}`;
+      // One more than the highest of its sort in the scene (restored ones included).
+      const re = new RegExp(`^${word} (\\d+)$`);
+      let top = this._counts?.[word] ?? 0;
+      for (const n of this.model.nodes.values()) top = Math.max(top, Number(re.exec(n.name)?.[1] ?? 0));
+      this._counts = { ...this._counts, [word]: top + 1 };
+      extra.name = `${word} ${top + 1}`;
     }
     const base = { parent, method, inputs: inputs.slice(), ...extra, ...fields };
-    return this.model.add(kind, { ...base, ...this.compute({ ...base, kind }) });
+    const node = this.model.add(kind, { ...base, ...this.compute({ ...base, kind }) });
+    if (kind === 'orient') this._place(node);
+    return node;
+  }
+
+  // An input as this object sees it: a global object (no mesh of its own)
+  // works in scene coordinates, so inputs on a moved mesh are moved first.
+  _input(node, id) {
+    const input = this.model.get(id);
+    if (!input || node.parent) return input;
+    return nodeInScene(input, this.model.meshOf(id)?.placement ?? null);
+  }
+
+  // An orientation sets its mesh's placement.
+  _place(node) {
+    const mesh = this.model.get(node.parent);
+    if (mesh?.kind === 'mesh') this.model.update(mesh.id, { placement: node.error ? null : node.placement });
+  }
+
+  _orient(node, input) {
+    const fail = (error) => ({ placement: null, error });
+    const s = shapeOf(input);
+    if (!s) return fail('input');
+    let R;
+    let origin;
+    if (node.method === 'frame') {
+      R = [s.x, s.y, s.z].map((v) => v.slice());
+      origin = s.origin;
+    } else {
+      const target = AXES[node.axis];
+      if (!target) return fail('axis');
+      R = rotationBetween(node.method === 'plane' ? s.normal : s.direction, target);
+      origin = s.point;
+    }
+    const turned = turn({ rotation: R, translation: [0, 0, 0] }, origin);
+    return { placement: { rotation: R, translation: turned.map((v) => -v || 0) }, error: null };
   }
 
   compute(node) {
     const fail = (error) => ({ ...EMPTY[node.kind], error });
-    const inputs = node.inputs.map((id) => this.model.get(id));
+    const inputs = node.inputs.map((id) => this._input(node, id));
     if (inputs.some((n) => !n)) return fail('no-input');
+    if (node.kind === 'orient') return this._orient(node, inputs[0]);
     if (node.kind === 'frame' || node.kind === 'measure') {
       const shapes = inputs.map(shapeOf);
       if (shapes.some((s) => !s)) return fail('input');
@@ -270,7 +332,9 @@ export class ConstructionEngine {
   // Make it again and store the result on the node.
   refresh(id) {
     const node = this.model.get(id);
-    if (isConstructed(node)) this.model.update(id, this.compute(node));
+    if (!isConstructed(node)) return;
+    this.model.update(id, this.compute(node));
+    if (node.kind === 'orient') this._place(node);
   }
 
   // Change a line (`flipped`) or a coordinate system (`primary`, `secondary`) and make it again, as one change.
@@ -278,14 +342,25 @@ export class ConstructionEngine {
     const node = this.model.get(id);
     if (!isConstructed(node)) return;
     this.model.update(id, { ...fields, ...this.compute({ ...node, ...fields }) });
+    if (node.kind === 'orient') this._place(node);
   }
 
   _onChange({ kind, ids, removed }) {
     if (kind === 'update') {
       // A made point's own update reaches what was made from it in turn.
       for (const id of ids) for (const n of this.dependentsOf(id)) this.refresh(n.id);
+      // A mesh that moved: what was made from it together with objects on other meshes is made again.
+      for (const id of ids) {
+        if (this.model.get(id)?.kind !== 'mesh') continue;
+        const global = [...this.model.nodes.values()].filter((n) => isConstructed(n) && !n.parent && n.inputs.some((i) => this.model.meshOf(i)?.id === id));
+        for (const n of global) this.refresh(n.id);
+      }
     } else if (kind === 'remove') {
       for (const gone of removed) for (const n of this.dependentsOf(gone.id)) this.model.remove(n.id);
+      // An orientation removed (not with its mesh): the mesh goes back where its file has it.
+      for (const gone of removed) {
+        if (gone.kind === 'orient' && this.model.get(gone.parent)?.kind === 'mesh') this.model.update(gone.parent, { placement: null });
+      }
     }
   }
 }

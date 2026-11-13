@@ -8,7 +8,7 @@ import {
 } from './helpers.js';
 import { EXAMPLE } from '../../js/sample.js';
 import { loadMeshBuffer } from '../../js/mesh-loader.js';
-import { readFile } from 'node:fs/promises';
+import { readFile, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 
 let server, url, browser, files, current;
@@ -133,7 +133,7 @@ describe('meshes', () => {
     const page = await start();
     await openFiles(page, [files.quad, files.text]);
     const msg = await messageText(page);
-    assert.match(msg, /“notes.txt” is not an STL or PLY mesh or a landmark file/);
+    assert.match(msg, /“notes.txt” is not an STL or PLY mesh, a saved scene \(.bonefitter.json\) or a landmark file/);
     assert.match(msg, /“quad.ply” has faces with more than three corners/);
     assert.deepEqual(await names(page), ['Example femur']);
     await page.locator('#message button').click();
@@ -1117,7 +1117,7 @@ describe('menus, the tool rail and the prompts that ask for what a command needs
 
   test('the bar above the 3D view is one row: Open, a menu per kind of object, the views', async () => {
     const page = await start();
-    assert.deepEqual(await page.$$eval('.toolbar .menu-btn', (els) => els.map((e) => e.textContent.trim())), ['Region', 'Sphere', 'Cylinder', 'Plane', 'Point', 'Line', 'Axes', 'Measure', 'View']);
+    assert.deepEqual(await page.$$eval('.toolbar .menu-btn', (els) => els.map((e) => e.textContent.trim())), ['File', 'Region', 'Sphere', 'Cylinder', 'Plane', 'Point', 'Line', 'Axes', 'Orient', 'Measure', 'View']);
     const bar = await box(page, '.toolbar');
     assert.ok(bar.height < 60, `one row, ${bar.height}px high`);
     for (const id of ['region-btn', 'sphere-btn', 'cylinder-btn', 'plane-btn']) assert.equal(await page.locator(`#${id}`).count(), 0);
@@ -1660,5 +1660,131 @@ describe('curves with points close together (reported on a 910,000-triangle hume
     await page.mouse.click(x, y + 84);
     assert.match(await page.locator('#tool-hint').innerText(), /^Curve 1 finished\. Click on a mesh to start a new curve\./);
     assert.equal(await page.evaluate(() => window.__bf.model.get(window.__bf.model.selectedId).drawing), false);
+  });
+});
+
+describe('orienting meshes, and saving and opening the scene', () => {
+  const unit = (v) => v.map((x) => x / Math.hypot(...v));
+  const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+  const HOME = unit([0.45, 0.35, 1]);
+  const E1 = unit(cross(HOME, [0, 1, 0]));
+  const E2 = cross(HOME, E1);
+  const onBall = (c, R, angle, t) => {
+    const a = (angle * Math.PI) / 180;
+    return c.map((v, i) => v + R * (Math.cos(a) * HOME[i] + Math.sin(a) * (Math.cos(t) * E1[i] + Math.sin(t) * E2[i])));
+  };
+  const loop = (c, R, angle, n = 8) => Array.from({ length: n }, (_, k) => onBall(c, R, angle, (2 * Math.PI * k) / n));
+  const select = (page, name) => page.locator(`#tree .tree-name[title="${name}"]`).click();
+  const close = (a, b, tol, msg) => a.forEach((v, i) => assert.ok(Math.abs(v - b[i]) <= tol, `${msg} [${i}] ${v} ≉ ${b[i]}`));
+  async function capSphere(page, c, R) {
+    await page.locator('#curve-btn').click();
+    for (const p of loop(c, R, 35)) await clickAt(page, await onScreen(page, p));
+    await page.keyboard.press('c');
+    await page.locator('#pointer-btn').click();
+    await page.locator('#prop-make [data-make="sphere-fit"]').click();
+  }
+  // Browsers with a Save dialog would open it; these tests take the plain download instead.
+  const noDialog = () => { delete window.showSaveFilePicker; };
+  const fileMenu = async (page, id) => {
+    await page.locator('#file-menu').click();
+    await page.locator(`#${id}`).click();
+  };
+
+  test('stand the femur on a plane under the condyle: it turns over; numbers shown in the scene or as in the file', async () => {
+    const page = await start();
+    await capSphere(page, EXAMPLE.condyles[0].centre, EXAMPLE.condyles[0].radius);
+    await select(page, 'Region 1');
+    await page.locator('#prop-make [data-make="plane-fit"]').click();
+    await choose(page, 'orient-plane');
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'orient');
+    const p = await properties(page);
+    assert.equal(p.name, 'Orientation');
+    assert.match(p.rows.How, /^Standing on Plane 1: its normal along −Z/);
+    assert.equal(await page.locator('#prop-orient-axis').inputValue(), '-z');
+    assert.equal(await page.locator('#space-note').innerText(), '1 mesh · oriented · coordinates stored as in each mesh file');
+    // The mesh carries its placement; the 3D view draws it there.
+    const pl = await page.evaluate(() => window.__bf.model.meshes()[0].placement);
+    assert.ok(pl);
+    const drawn = await page.evaluate(() => [...window.__bf.view.objects.get(window.__bf.model.meshes()[0].id).matrixWorld.elements]);
+    close([drawn[12], drawn[13], drawn[14]], pl.translation, 1e-9, 'the drawn mesh is shifted');
+    // The sphere's centre: in the scene by default, or as in the file.
+    await select(page, 'Sphere 1');
+    const inScene = await properties(page);
+    assert.match(inScene.rows.Coordinates, /^of the scene \(Example femur has been moved\)$/);
+    const rotate = (v) => pl.rotation.map((row) => row.reduce((s, r, i) => s + r * v[i], 0));
+    const expected = rotate(EXAMPLE.condyles[0].centre).map((v, i) => v + pl.translation[i]);
+    close(['Centre x', 'Centre y', 'Centre z'].map((k) => Number(inScene.rows[k])), expected, 0.005, 'where the centre is now');
+    await page.locator('#prop-space-file').click();
+    const inFile = await properties(page);
+    close(['Centre x', 'Centre y', 'Centre z'].map((k) => Number(inFile.rows[k])), EXAMPLE.condyles[0].centre, 0.005, 'as in the file');
+    // Back to the file's position.
+    await select(page, 'Example femur');
+    assert.equal((await properties(page)).rows.Placement, 'moved by Orientation');
+    await choose(page, 'orient-reset');
+    assert.equal(await page.evaluate(() => window.__bf.model.meshes()[0].placement), null);
+    assert.equal((await properties(page)).rows.Placement, 'where its file puts it');
+    assert.equal(await page.locator('#space-note').innerText(), '1 mesh · coordinates as in each mesh file');
+  });
+
+  test('save the scene, open it again in a fresh page: everything is back, where it was', async () => {
+    const page = await start({ init: noDialog });
+    await capSphere(page, EXAMPLE.head.centre, EXAMPLE.head.radius);
+    await select(page, 'Region 1');
+    await page.locator('#prop-make [data-make="plane-fit"]').click();
+    await page.locator('#prop-make [data-make="line-perpendicular"]').click();
+    await select(page, 'Sphere 1');
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'line');
+    await choose(page, 'orient-line');
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'orient');
+    const before = await page.evaluate(() => [...window.__bf.model.nodes.values()].map((n) => ({ kind: n.kind, name: n.name, centre: n.centre ?? null, direction: n.direction ?? null, placement: n.placement ?? null })));
+    const [download] = await Promise.all([page.waitForEvent('download'), fileMenu(page, 'save-scene')]);
+    assert.equal(download.suggestedFilename(), 'example-femur.bonefitter.json');
+    const path = join(files.dir, 'saved.bonefitter.json');
+    await download.saveAs(path);
+    const doc = JSON.parse(await readFile(path, 'utf8'));
+    assert.equal(doc.format, 'bonefitter-scene');
+    assert.equal(doc.meshes[0].example, true);
+    await page.waitForFunction(() => /Saved/.test(document.getElementById('message')?.innerText ?? ''));
+    const said = await messageText(page);
+    assert.match(said, /^Saved “example-femur\.bonefitter\.json”\./);
+    assert.doesNotMatch(said, /together with/, 'the example needs no mesh file');
+    // A fresh page (the example is there again): open the scene.
+    const fresh = await start();
+    await fresh.locator('#file-input').setInputFiles(path);
+    await fresh.waitForFunction(() => [...window.__bf.model.nodes.values()].some((n) => n.kind === 'orient'));
+    const after = await fresh.evaluate(() => [...window.__bf.model.nodes.values()].map((n) => ({ kind: n.kind, name: n.name, centre: n.centre ?? null, direction: n.direction ?? null, placement: n.placement ?? null })));
+    assert.deepEqual(after, before);
+  });
+
+  test('a scene opened without its mesh says which mesh to open with it', async () => {
+    const page = await start();
+    const path = join(files.dir, 'needs-mesh.bonefitter.json');
+    await writeFile(path, JSON.stringify({ format: 'bonefitter-scene', version: '0.1.0', meshes: [{ id: 'm1', name: 'F', file: 'FEMUR_014.ply', sha256: 'e'.repeat(64) }], objects: [] }));
+    await page.locator('#file-input').setInputFiles(path);
+    assert.match(await messageText(page), /^“needs-mesh\.bonefitter\.json” needs the mesh “FEMUR_014\.ply”, which isn’t open\. Open it together with the scene file/);
+  });
+
+  test('save landmark files: landmark-json with the curves and regions; opening it in BoneFitter brings back the rest', async () => {
+    const page = await start({ init: noDialog });
+    await capSphere(page, EXAMPLE.head.centre, EXAMPLE.head.radius);
+    const [download] = await Promise.all([page.waitForEvent('download'), fileMenu(page, 'save-lmk')]);
+    assert.equal(download.suggestedFilename(), 'example-femur.lmk.json');
+    const path = join(files.dir, 'example-femur.lmk.json');
+    await download.saveAs(path);
+    const doc = JSON.parse(await readFile(path, 'utf8'));
+    assert.equal(doc.format, 'landmark-json');
+    assert.equal(doc.curves[0].id, 'C01');
+    assert.deepEqual(doc.surfaces[0].boundary, ['C01']);
+    assert.ok(doc.extensions.bonefitter.objects.some((o) => o.kind === 'sphere'));
+    const fresh = await start();
+    await fresh.locator('#file-input').setInputFiles(path);
+    await fresh.waitForFunction(() => [...window.__bf.model.nodes.values()].some((n) => n.kind === 'sphere'));
+    assert.deepEqual(await names(fresh), ['Example femur', 'Curve 1', 'Region 1', 'Sphere 1']);
+  });
+
+  test('Ctrl+S saves the scene', async () => {
+    const page = await start({ init: noDialog });
+    const [download] = await Promise.all([page.waitForEvent('download'), page.keyboard.press('Control+s')]);
+    assert.equal(download.suggestedFilename(), 'example-femur.bonefitter.json');
   });
 });

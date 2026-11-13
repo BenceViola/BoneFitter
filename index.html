@@ -167,6 +167,9 @@
   .tree-name .count.value { color: var(--fg); padding-left: 8px; white-space: nowrap; }
   .props-axes { display: grid; grid-template-columns: auto 1fr; gap: 6px 10px; align-items: center; padding: 10px 16px 0; font-size: 12.5px; color: var(--muted); }
   .props-axes select { justify-self: start; }
+  .props-space { display: flex; align-items: center; gap: 6px; padding: 8px 16px 0; font-size: 12.5px; color: var(--muted); }
+  .props-space span { margin-right: 4px; }
+  .props-space .btn[aria-pressed="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
   .tree-name .icon { flex: none; color: var(--muted); }
   .tree-row[data-status="placed"] .icon { color: #2f63e0; }
   .tree-row[data-status="estimated"] .icon { color: #d98a00; }
@@ -244,17 +247,18 @@
     display: flex;
     flex-wrap: wrap;
     align-items: center;
-    gap: 8px;
-    padding: 8px calc(12px + env(safe-area-inset-right, 0px)) 8px 12px;
+    gap: 6px;
+    padding: 8px calc(10px + env(safe-area-inset-right, 0px)) 8px 10px;
     border-bottom: 1px solid var(--line);
     background: var(--surface);
   }
   .toolbar .spacer { flex: 1; }
   /* One menu per kind of object, each listing the ways to make it. */
-  .menus { display: flex; flex-wrap: wrap; gap: 4px; }
+  .menus { display: flex; flex-wrap: wrap; gap: 3px; }
   .menu { position: relative; }
   /* Eight menus and View share one row at 1280 px: kept tight. */
-  .btn.menu-btn { gap: 4px; padding: 0 8px; }
+  .btn.menu-btn { gap: 4px; padding: 0 7px; }
+  .sr-only { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
   .menu-btn .caret { width: 8px; height: 8px; color: var(--muted); }
   .menu-btn[aria-expanded="true"] { background: var(--accent-soft); border-color: var(--accent); color: var(--accent); }
   .menu-list {
@@ -283,6 +287,8 @@
     cursor: pointer;
   }
   .menu-list button:hover, .menu-list button:focus-visible { background: var(--accent-soft); outline: none; }
+  .menu-list .key { float: right; margin-left: 18px; color: var(--muted); font-weight: 400; font-size: 12px; }
+  .btn.primary.menu-btn .caret { color: inherit; }
 
   /* The rail: what the mouse does in the 3D view. Beside the view, never over the mesh. */
   .stage-row { display: flex; flex: 1 1 0; min-width: 0; min-height: 0; }
@@ -458,7 +464,7 @@
 <div class="app">
   <aside class="panel">
     <header class="brand">
-      <h1>BoneFitter <span class="ver">v0.11.1</span></h1>
+      <h1>BoneFitter <span class="ver">v0.12</span></h1>
     </header>
 
     <div id="message" class="message" role="alert" hidden></div>
@@ -477,12 +483,21 @@
   <div class="work">
     <div class="toolbar" role="toolbar" aria-label="Tools">
       <input type="file" id="file-input" class="file-input" accept=".stl,.ply,.json" multiple>
-      <label for="file-input" class="btn primary" title="Open meshes (STL, PLY) and landmark files (.lmk.json)">Open…</label>
+      <div class="menu">
+        <button type="button" class="btn primary menu-btn" id="file-menu" aria-haspopup="menu" aria-expanded="false" title="Open meshes and saved work; save the scene">File
+          <svg class="icon caret" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5"/></svg>
+        </button>
+        <div class="menu-list" role="menu" aria-label="File" hidden>
+          <button type="button" role="menuitem" id="open-btn" title="Open meshes (STL, PLY), saved scenes (.bonefitter.json) and landmark files (.lmk.json). Select a scene together with its meshes.">Open… <span class="key">Ctrl+O</span></button>
+          <button type="button" role="menuitem" id="save-scene" title="Save every mesh's work, and where the meshes sit, in one file. Open it again together with its mesh files.">Save scene… <span class="key">Ctrl+S</span></button>
+          <button type="button" role="menuitem" id="save-lmk" title="Save each mesh's landmarks, curves and regions as a landmark-json file, for Landmarker3D; BoneFitter opens everything else from it too">Save landmark files…</button>
+        </div>
+      </div>
       <div class="menus" id="menus"></div>
       <span class="spacer"></span>
       <div class="menu">
-        <button type="button" class="btn tool menu-btn" id="view-menu" aria-haspopup="menu" aria-expanded="false" title="Look along an axis, or fit everything in view">
-          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg>View
+        <button type="button" class="btn tool menu-btn" id="view-menu" aria-haspopup="menu" aria-expanded="false" aria-label="View" title="View: look along an axis, or fit everything in view">
+          <svg class="icon" viewBox="0 0 16 16" aria-hidden="true"><path d="M1.5 8s2.5-4.5 6.5-4.5S14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8z"/><circle cx="8" cy="8" r="2"/></svg><span class="sr-only">View</span>
           <svg class="icon caret" viewBox="0 0 10 10" aria-hidden="true"><path d="M2 3.5 5 6.5 8 3.5"/></svg>
         </button>
         <div class="menu-list view-list" role="menu" aria-label="View" hidden>

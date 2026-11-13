@@ -25,6 +25,7 @@ import { LineMaterial } from 'three/addons/lines/LineMaterial.js';
 import { BONE, displayGeometry } from './viewer.js';
 import { FIT_KINDS } from './fit-engine.js';
 import { isConstructed } from './construction-engine.js';
+import { matrixElements } from './placement.js';
 
 const POINT_COLORS = { placed: 0x2f63e0, estimated: 0xd98a00 };
 const MADE_COLOR = 0x7c3aed; // points and lines made from other objects
@@ -100,10 +101,24 @@ export class SceneView {
     surface.name = 'surface';
     group.add(surface);
     group.visible = node.visible;
+    // Where the mesh sits in the scene; its vertices stay as the file has them.
+    group.matrixAutoUpdate = false;
+    group.matrix.fromArray(matrixElements(node.placement));
     this.root.add(group);
     this.objects.set(node.id, group);
     this.sources.set(node.id, source);
     this.picker.add(node.id, source, group);
+    this._refreshBox();
+  }
+
+  // A mesh moved (its placement changed): it and everything attached to it go with it.
+  _placeMesh(node) {
+    const group = this.objects.get(node.id);
+    if (!group) return;
+    const e = matrixElements(node.placement);
+    if (group.matrix.elements.every((v, i) => v === e[i])) return;
+    group.matrix.fromArray(e);
+    group.matrixWorldNeedsUpdate = true;
     this._refreshBox();
   }
 
@@ -296,6 +311,7 @@ export class SceneView {
       for (const id of ids) {
         const node = this.model.get(id);
         if (node?.kind === 'curve') this._drawCurve(node);
+        else if (node?.kind === 'mesh') this._placeMesh(node);
         else if (node?.kind === 'region') this._drawRegion(node);
         else if (FIT_KINDS.has(node?.kind)) this._drawFit(node);
         else if (node?.kind === 'line') this._drawLine(node);

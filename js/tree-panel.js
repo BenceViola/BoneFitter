@@ -11,6 +11,7 @@ const ICONS = {
   point: '<circle cx="8" cy="8" r="3" fill="currentColor" stroke="none"/>',
   line: '<path d="M2.5 13.5 13.5 2.5M9.5 2.5h4v4"/>',
   frame: '<path d="M3 13V3M3 13h10M3 13l6-4"/>',
+  orient: '<path d="M13.5 8A5.5 5.5 0 1 1 8 2.5"/><path d="M8 0.5v4l2.5-2z" fill="currentColor"/>',
   measure: '<path d="M1.5 10.5 10.5 1.5l4 4-9 9z"/><path d="M4.5 7.5l1.5 1.5M6.5 5.5l1.5 1.5M8.5 3.5l1.5 1.5"/>',
   curve: '<path d="M2 12c2-8 4-8 6-3s4 4 6-5"/>',
   region: '<path d="M3 6c1-3 6-4 9-2s2 7-1 8-9-2-8-6z"/>',

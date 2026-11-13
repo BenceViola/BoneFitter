@@ -45,8 +45,8 @@
 // template, when the app gets one, will say which objects to create, and
 // this is the link from an object back to the template step it fulfils.
 
-const PREFIX = { mesh: 'm', group: 'g', point: 'p', line: 'l', frame: 'k', measure: 'd', curve: 'c', region: 'r', sphere: 's', plane: 'f', cylinder: 'y' };
-const LABEL = { mesh: 'Mesh', group: 'Group', point: 'Point', line: 'Line', frame: 'Axes', measure: 'Measurement', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
+const PREFIX = { mesh: 'm', group: 'g', point: 'p', line: 'l', frame: 'k', measure: 'd', orient: 'o', curve: 'c', region: 'r', sphere: 's', plane: 'f', cylinder: 'y' };
+const LABEL = { mesh: 'Mesh', group: 'Group', point: 'Point', line: 'Line', frame: 'Axes', measure: 'Measurement', orient: 'Orientation', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
 
 export class SceneModel extends EventTarget {
   constructor() {
@@ -97,7 +97,10 @@ export class SceneModel extends EventTarget {
     const parent = fields.parent ?? null;
     if (parent !== null && !this.nodes.has(parent)) throw new Error(`No object ${parent} to attach to`);
     if (kind === 'mesh' && parent !== null) throw new Error('A mesh cannot be attached to another object');
-    const n = (this._counter[kind] = (this._counter[kind] || 0) + 1);
+    let n = (this._counter[kind] = (this._counter[kind] || 0) + 1);
+    // A name given in the usual form ("Curve 7", a restored scene) moves the count on past it.
+    const given = typeof fields.name === 'string' && new RegExp(`^${LABEL[kind]} (\\d+)$`).exec(fields.name);
+    if (given && Number(given[1]) > n) n = this._counter[kind] = Number(given[1]);
     // Without a name of its own, an object is called after its kind: "Curve 2".
     const node = { visible: true, template_id: null, ...fields, id: `${PREFIX[kind]}${n}`, kind, parent };
     if (!node.name) node.name = `${LABEL[kind]} ${n}`;

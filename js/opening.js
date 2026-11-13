@@ -1,11 +1,15 @@
 // Opening files: meshes (STL, PLY) become mesh objects; landmark files
 // (.lmk.json) become a folder of points attached to the mesh they were
-// placed on. Meshes are read first, so a mesh and its landmark file can be
-// opened or dropped together.
+// placed on; a saved scene (.bonefitter.json), or a landmark file saved by
+// BoneFitter (with extensions.bonefitter), brings everything back
+// (scene-file.js). Meshes are read first, so a mesh and its landmark file or
+// scene can be opened or dropped together.
 
 import { loadMeshBuffer, MeshLoadError } from './mesh-loader.js';
 import { meshArea } from './mesh-export.js';
 import { parseLandmarkFile, meshMatches, isLandmarkFileName, LandmarkFileError } from './landmark-file.js';
+import { isSceneDoc, restoreScene, SceneFileError } from './scene-file.js';
+import { sceneFromLandmarkDoc } from './landmark-export.js';
 
 // Above this many triangles in total, the view may get slow on a laptop.
 export const MANY_TRIANGLES = 3_000_000;
@@ -42,6 +46,7 @@ export function landmarkNodes(parsed, meshId) {
     specimenId: parsed.specimen?.id ?? null,
     templateName: parsed.template?.name || parsed.template?.id || null,
     template: parsed.template, // kept whole: a guiding template will build on it
+    rawCurves: Array.isArray(parsed.doc.curves) ? parsed.doc.curves : undefined, // not shown here; written back when saved
     operator: parsed.doc.provenance?.operator ?? null,
   };
   const points = parsed.points.map((p) => ({
@@ -77,7 +82,7 @@ export async function openFiles(app, files) {
 
   for (const f of list) {
     if (!meshFiles.includes(f) && !lmkFiles.includes(f)) {
-      errors.push(`“${f.name}” is not an STL or PLY mesh or a landmark file (.lmk.json).`);
+      errors.push(`“${f.name}” is not an STL or PLY mesh, a saved scene (.bonefitter.json) or a landmark file (.lmk.json).`);
     }
   }
 
@@ -104,7 +109,27 @@ export async function openFiles(app, files) {
 
   for (const f of lmkFiles) {
     try {
-      const parsed = parseLandmarkFile(await f.text(), f.name);
+      const text = await f.text();
+      let doc = null;
+      try {
+        doc = JSON.parse(text);
+      } catch {
+        // parseLandmarkFile says so below.
+      }
+      const scene = isSceneDoc(doc) ? doc : sceneFromLandmarkDoc(doc);
+      if (scene) {
+        app.setBusy?.(`Opening ${f.name}…`);
+        await app.nextFrame?.();
+        try {
+          await restoreScene(app, scene, f.name);
+          opened++;
+        } catch (err) {
+          if (!(err instanceof SceneFileError)) console.error(err);
+          errors.push(err instanceof SceneFileError ? err.message : `“${f.name}” could not be opened.`);
+        }
+        continue;
+      }
+      const parsed = parseLandmarkFile(text, f.name);
       const mesh = model.meshes().find((n) => meshMatches(parsed.specimen.mesh, n));
       if (!mesh) {
         const want = parsed.specimen.mesh.file ? `“${parsed.specimen.mesh.file}”` : 'its mesh';

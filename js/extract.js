@@ -33,7 +33,9 @@ export async function meshFromRegion(app, regionId) {
       format: 'made from a region',
       // Coordinates are those of the original file.
       coordsFile: mesh.coordsFile ?? mesh.file,
-      madeFrom: { mesh: mesh.name, region: region.name, boundary: region.boundary.map((id) => model.get(id)?.name ?? id), flipped: !!region.flipped },
+      madeFrom: { mesh: mesh.name, meshId: mesh.id, region: region.name, boundary: region.boundary.map((id) => model.get(id)?.name ?? id), flipped: !!region.flipped, faces: Array.from(region.faces) },
+      // It sits where its original sits (a copy: it doesn't follow later moves).
+      placement: mesh.placement ? JSON.parse(JSON.stringify(mesh.placement)) : null,
       // A mesh made from the example goes with the example.
       ...(mesh.example ? { example: true } : {}),
     })

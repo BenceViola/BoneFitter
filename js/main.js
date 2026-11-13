@@ -8,6 +8,8 @@ import { SceneView } from './scene-view.js';
 import { setupTree } from './tree-panel.js';
 import { setupProperties } from './properties-panel.js';
 import { openFiles, meshFields } from './opening.js';
+import { sceneDoc, stringify } from './scene-file.js';
+import { landmarkDoc } from './landmark-export.js';
 import { loadMeshBuffer } from './mesh-loader.js';
 import { makeExampleStl, EXAMPLE } from './sample.js';
 import { CurveEngine } from './curve-engine.js';
@@ -61,9 +63,12 @@ model.addEventListener('change', renderStage);
 function renderStage() {
   const meshes = model.meshes();
   $('stage-empty').hidden = meshes.length > 0 || !webgl;
-  $('space-note').textContent = meshes.length
-    ? `${meshes.length} ${meshes.length === 1 ? 'mesh' : 'meshes'} · coordinates as in each mesh file`
-    : '';
+  // Moved (oriented) meshes are shown where they were put; what is stored stays as in each file.
+  const moved = meshes.filter((m) => m.placement).length;
+  const where = moved
+    ? `${moved === meshes.length ? (moved === 1 ? 'oriented' : 'all oriented') : `${moved} oriented`} · coordinates stored as in each mesh file`
+    : 'coordinates as in each mesh file';
+  $('space-note').textContent = meshes.length ? `${meshes.length} ${meshes.length === 1 ? 'mesh' : 'meshes'} · ${where}` : '';
 }
 
 // ---- Curves, and the mouse in the 3D view -------------------------------------
@@ -133,6 +138,11 @@ if (webgl) {
   // buttons in Properties, and the strip that asks for what a command needs.
   setupMenus(document.querySelector('.toolbar'), $('menus'), MENUS, run);
   app.run = run;
+  // A mesh just oriented may have left the view: frame everything again.
+  app.frameView = () => viewer.fit();
+  model.addEventListener('change', (e) => {
+    if (e.detail.kind === 'add' && e.detail.ids.some((id) => model.get(id)?.kind === 'orient')) queueMicrotask(() => viewer.fit());
+  });
   app.commands.addEventListener('change', renderPrompt);
   $('prompt-cancel').addEventListener('click', () => app.commands.cancel());
   // While a command asks for an object, a click on a name in the Objects list
@@ -247,6 +257,12 @@ for (const btn of document.querySelectorAll('.viewbar [data-view]')) {
 $('fit-btn').addEventListener('click', () => viewer?.fit());
 
 window.addEventListener('keydown', (e) => {
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && (e.key === 's' || e.key === 'o')) {
+    e.preventDefault();
+    if (e.key === 's') saveScene();
+    else $('file-input').click();
+    return;
+  }
   if (e.ctrlKey || e.metaKey || e.altKey) return;
   if (e.target.closest?.('input, textarea, select')) return;
   if (e.key === 'f' || e.key === 'F') viewer?.fit();
@@ -357,6 +373,67 @@ app.saveMesh = async (id, format) => {
 };
 prepareSaving();
 
+// ---- Saving the scene, and landmark files ----------------------------------
+
+const JSON_TYPES = (description, ext) => [{ description, accept: { 'application/json': [ext] } }];
+let sceneCreated = null;
+
+// One file with every mesh's work and where the meshes sit.
+async function saveScene() {
+  const meshes = model.meshes();
+  if (!meshes.length) {
+    showMessage('note', ['There is nothing to save yet. Open a mesh first.']);
+    return null;
+  }
+  const doc = sceneDoc(model, { created: sceneCreated });
+  sceneCreated = doc.provenance.created;
+  const first = meshes.find((m) => !m.madeFrom) ?? meshes[0];
+  const filename = `${STEM(first.file || first.name)}.bonefitter.json`;
+  try {
+    const r = await saveFile({ filename, data: new TextEncoder().encode(stringify(doc)), types: JSON_TYPES('BoneFitter scene', '.json') });
+    if (r.status !== 'cancelled') {
+      const files = doc.meshes.filter((m) => !m.example && !m.made_from).map((m) => `“${m.file}”`);
+      showMessage('note', [`Saved “${r.name}”.${files.length ? ` To open it again, open it together with ${files.join(', ')}.` : ''}`]);
+    }
+    return r;
+  } catch (err) {
+    showMessage('error', [err.message || 'The scene could not be saved.']);
+    return null;
+  }
+}
+app.saveScene = saveScene;
+
+// A landmark-json file for each mesh with something on it (each a save of its own).
+async function saveLandmarkFiles() {
+  const meshes = model.meshes().filter((m) => model.children(m.id).length);
+  if (!meshes.length) {
+    showMessage('note', ['No mesh has anything on it to save yet.']);
+    return [];
+  }
+  const saved = [];
+  for (const m of meshes) {
+    const doc = landmarkDoc(model, m.id);
+    try {
+      const r = await saveFile({ filename: `${STEM(m.file || m.name)}.lmk.json`, data: new TextEncoder().encode(stringify(doc)), types: JSON_TYPES('Landmark file', '.json') });
+      if (r.status === 'cancelled') break;
+      saved.push(r.name);
+    } catch (err) {
+      showMessage('error', [err.message || 'A landmark file could not be saved.']);
+      return saved;
+    }
+  }
+  const global = [...model.nodes.values()].filter((n) => n.kind !== 'mesh' && !n.parent).length;
+  const lines = saved.length ? [`Saved ${saved.map((n) => `“${n}”`).join(', ')}.`] : [];
+  if (global) lines.push(`${global} object${global === 1 ? ' is' : 's are'} made from more than one mesh and belong${global === 1 ? 's' : ''} to no mesh's file; they are saved in the scene file (Save scene).`);
+  if (lines.length) showMessage('note', lines);
+  return saved;
+}
+app.saveLandmarkFiles = saveLandmarkFiles;
+
+$('open-btn').addEventListener('click', () => $('file-input').click());
+$('save-scene').addEventListener('click', () => saveScene());
+$('save-lmk').addEventListener('click', () => saveLandmarkFiles());
+
 // ---- Messages, busy, clipboard ---------------------------------------------
 
 function showMessage(type, lines) {
@@ -406,14 +483,20 @@ async function copyText(text) {
 
 // ---- Start: show the example ------------------------------------------------
 
+// The example mesh (also when a saved scene made on it is opened).
+app.loadExample = async () => {
+  const mesh = await loadMeshBuffer(makeExampleStl(), EXAMPLE.file);
+  const node = model.add('mesh', meshFields(mesh, { name: 'Example femur', example: true }));
+  view.addMesh(node, mesh.geometry);
+  return node;
+};
+
 async function start() {
   renderStage();
   if (webgl) {
     setBusy('Preparing the example…');
     await nextFrame();
-    const mesh = await loadMeshBuffer(makeExampleStl(), EXAMPLE.file);
-    const node = model.add('mesh', meshFields(mesh, { name: 'Example femur', example: true }));
-    view.addMesh(node, mesh.geometry);
+    await app.loadExample();
     viewer.viewFrom('home');
     setBusy(null);
   }

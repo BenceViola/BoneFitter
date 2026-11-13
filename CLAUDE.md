@@ -2,7 +2,7 @@
 
 Browser app for fitting geometric primitives (lines, planes, spheres, cylinders) to STL/PLY meshes of bones, to quantify structures such as epiphyses and joint surfaces. Sister app of Landmarker3D and landmarker2D: same stack, same look, opened from GitHub Pages, nothing installed, no data leaves the computer. The owner is a morphometrician, not a web developer: explain changes in plain terms.
 
-**State (v0.11):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose), and regions can also be selected on the screen with Lasso or Box; spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path; points can be placed on a mesh or made from other objects (a sphere's centre, a centroid, a midpoint, a line meeting a plane), and lines made from them (through two points, a cylinder's axis, fitted to a curve, perpendicular to a plane, two planes meeting); coordinate systems (from an origin and two directions, or three points) and measurements (distances, angles, angles seen on a plane, a point's coordinates in a coordinate system) are objects that follow what they were made from; a region can be made into a mesh of its own; every mesh shows its surface area and can be saved as STL or PLY. Things are made from menus (one per kind of object) or from the selected object's Properties; mouse tools sit on a rail beside the 3D view. Moving meshes and saving are not built yet.
+**State (v0.12):** meshes and landmark files open into an object tree; curves can be drawn on a mesh (open or closed, following the surface); closed curves can be turned into regions (the triangles they enclose), and regions can also be selected on the screen with Lasso or Box; spheres, cylinders and planes can be fitted to regions, and planes also to a curve's path; points can be placed on a mesh or made from other objects (a sphere's centre, a centroid, a midpoint, a line meeting a plane), and lines made from them (through two points, a cylinder's axis, fitted to a curve, perpendicular to a plane, two planes meeting); coordinate systems (from an origin and two directions, or three points) and measurements (distances, angles, angles seen on a plane, a point's coordinates in a coordinate system) are objects that follow what they were made from; a region can be made into a mesh of its own; every mesh shows its surface area and can be saved as STL or PLY. Meshes can be oriented (by a coordinate system, a line or a plane), which places them in the scene without changing their coordinates; the scene is saved as a .bonefitter.json file and as landmark-json files per mesh, both reopened in full. Things are made from menus (one per kind of object) or from the selected object's Properties; mouse tools sit on a rail beside the 3D view.
 
 ## Ground rules (do not break these)
 
@@ -22,13 +22,13 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `index.html` | Page, styles (colour tokens, light and dark), import map |
 | `js/main.js` | Wiring: viewer, panels, menus, tool rail, the strips of the tool or command in use, keyboard, drag and drop, messages |
 | `js/interaction.js` | Mouse and touch in the 3D view: click to select (or to the tool in use, or the object a command asks for), dragging a curve's handle, drawing a lasso or box outline |
-| `js/scene-model.js` | The object tree: nodes (`mesh`, `group`, `point`, `line`, `frame`, `measure`, `curve`, `region`, `sphere`, `cylinder`, `plane`), attaching, hiding, removing, updating, selecting. No three.js |
+| `js/scene-model.js` | The object tree: nodes (`mesh`, `group`, `point`, `line`, `frame`, `measure`, `orient`, `curve`, `region`, `sphere`, `cylinder`, `plane`), attaching, hiding, removing, updating, selecting. No three.js |
 | `js/scene-view.js` | Draws the tree: one three.js object per node, nested as in the tree; markers, curve lines and handles, region tints, fitted primitives (outline, a faint fill for planes, and a centre mark, all drawn through the mesh); what is under the cursor (`pointAt`, `fitAt`, `curveAt`, `handleAt`, `regionAt`); made points and lines (drawn through the mesh, a line with an arrowhead), coordinate systems (RGB arrows), measurements (thin teal lines); `lineAt` (anything with `userData.strokes`); the box the camera frames |
 | `js/viewer.js` | three.js scene, camera, lights, framing; `displayGeometry` (the drawn copy of a mesh) |
 | `js/picking.js` | BVH raycasting over several meshes; hits in the mesh file's coordinates wherever the mesh is |
 | `js/mesh-loader.js` | STL/PLY reading, raw counts, SHA-256, triangle-only checks |
 | `js/landmark-file.js` | Reading `.lmk.json` (landmarks and the template; not curves yet) |
-| `js/opening.js` | Opening files into the tree: meshes, then landmark files matched to them by SHA-256 |
+| `js/opening.js` | Opening files into the tree: meshes, then scenes and landmark files matched to them by SHA-256 (a landmark file with `extensions.bonefitter` is opened as a scene) |
 | `js/tree-panel.js` | Objects list (left) |
 | `js/properties-panel.js` | Properties of the selected object; `describe()` is the pure part |
 | `js/curves.js`, `js/geodesic.js` | Landmarker3D's curve maths and shortest paths across a surface, unchanged. Pure maths, no three.js |
@@ -45,11 +45,14 @@ Browser app for fitting geometric primitives (lines, planes, spheres, cylinders)
 | `js/curve-tool.js` | The Curve tool as a state machine (`click`, `finish`, `close`, `undo`, `cancel`); no page or mouse, so it is unit-tested |
 | `js/construct.js` | Maths for made points and lines: midpoint, line through two points, line fitted to a path, perpendicular to a plane, two planes meeting, a line meeting a plane. No three.js |
 | `js/measure.js` | Maths of measuring (distances, angles, angle seen on a plane) and of coordinate systems (`makeFrame`, `inFrame`). No three.js |
-| `js/construction-engine.js` | Made points, lines, coordinate systems and measurements as tree objects (`method`, `inputs`; `flipped` for lines, `primary`/`secondary` for frames), made again when an input changes, removed with it; points placed on a mesh (`placePoint`). `shapeOf` turns any input into plain geometry: a sphere stands for its centre, a cylinder for its axis |
+| `js/placement.js` | Where a mesh sits: a placement (rotation rows, translation), moving points and directions with it, `nodeInScene` (a copy of an object in scene coordinates), `rotationBetween`. No three.js |
+| `js/scene-file.js` | Saving and reopening the scene (.bonefitter.json): `sceneDoc`, `restoreScene` (meshes matched by SHA-256, ids remapped, everything recomputed) |
+| `js/landmark-export.js` | A mesh's work as a landmark-json file (`landmarkDoc`), and the scene kept in one (`sceneFromLandmarkDoc`) |
+| `js/construction-engine.js` | Made points, lines, coordinate systems, measurements and orientations as tree objects (`method`, `inputs`; `flipped` for lines, `primary`/`secondary` for frames), made again when an input changes, removed with it; points placed on a mesh (`placePoint`). `shapeOf` turns any input into plain geometry: a sphere stands for its centre, a cylinder for its axis |
 | `js/point-tool.js` | The Point tool: a click on a mesh places a point, a click on a point selects it; no mouse, so it is unit-tested |
 | `js/commands.js` | The ways to make each kind of object (`MENUS`, `COMMANDS`): what each needs (`inputs`, from `INPUTS`) and how it is made (`run`). No page |
 | `js/command-runner.js` | Runs a command: takes the selected object when it suits, otherwise asks for each input in turn (`start`, `offer`, `prefer`, `cancel`, `available(node)`); no page or mouse, so it is unit-tested |
-| `js/menus.js` | The menus above the 3D view, built from `MENUS` |
+| `js/menus.js` | The menus above the 3D view, built from `MENUS`; also opens, closes and walks the File and View menus written in `index.html` |
 | `js/sample.js` | The example mesh shown at start: a toy femur of exact shapes, with its true measurements in `EXAMPLE` |
 
 All changes to the tree go through `SceneModel`, which fires a `change` event (`{ kind, ids, removed }`, kinds `add`, `remove`, `rename`, `visible`, `update`, `select`) that the 3D view and both panels listen to. `window.__bf` exposes the app for the browser tests.
@@ -60,7 +63,7 @@ A region node holds what it was made from (`boundary`: curve ids, `flipped`) and
 
 A fitted node (`sphere`, `cylinder`, `plane`) holds what it was made from (`source`: a region's id, or a curve's for a plane; `method`; `flipped` for planes and cylinders) and what was computed (see the top of `fit-engine.js`; every kind has `rms`, `maxDeviation`, `error`), in the mesh file's coordinates. Change it only through `FitEngine` (`create(sourceId, kind)`, `set`, `refresh`). A failed fit clears every computed field (`EMPTY` in `fit-engine.js`), because `SceneModel.update` merges. The fit engine reacts to a region's or curve's `update`, so a moved curve point flows curve → region → fit in one go.
 
-A made point, line, coordinate system (`frame`) or measurement (`measure`) holds `method` and `inputs` (ids, in order) and, for lines, `flipped`, for frames `primary` and `secondary`; what is computed is listed at the top of `construction-engine.js`. Change it only through `ConstructionEngine` (`create(kind, method, inputs)`, `set`, `refresh`). It reacts to any input's `update`, so chains (sphere → its centre → a line through it → where that meets a plane) follow in one go. It hangs under the mesh all its inputs share, or at the top level when they come from different meshes.
+A made point, line, coordinate system (`frame`), measurement (`measure`) or orientation (`orient`) holds `method` and `inputs` (ids, in order) and, for lines, `flipped`, for frames `primary` and `secondary`; what is computed is listed at the top of `construction-engine.js`. Change it only through `ConstructionEngine` (`create(kind, method, inputs)`, `set`, `refresh`). It reacts to any input's `update`, so chains (sphere → its centre → a line through it → where that meets a plane) follow in one go. It hangs under the mesh all its inputs share, or at the top level when they come from different meshes.
 
 This is the pattern for everything that depends on something else (curve → region → fitted primitive → point → line → measurement): the dependent stores the ids it was made from, an engine recomputes it when those change, and the computed fields are never edited directly.
 
@@ -74,7 +77,7 @@ This is the pattern for everything that depends on something else (curve → reg
 
 ## Deployment
 
-GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.11.1`) shows which version is live; raise it with each feature that goes live.
+GitHub Pages is published by `.github/workflows/pages.yml` after the Tests workflow passes on `main`. The repository's Pages source must be "GitHub Actions" (Settings → Pages). The version in the page header (`v0.12`) shows which version is live; raise it with each feature that goes live.
 
 ## Writing for the UI
 
@@ -96,7 +99,6 @@ Short, plain sentences from the user's side of the screen. Errors say what went 
 
 Raised in the design discussion; check with the owner before building on any of these.
 
-- A Properties panel under the tree for the selected object's parameters (built in v0.1 for meshes and points), with a toggle between mesh and scene coordinates once meshes can be moved.
 - Cutting triangles along the curve, if a region edge that follows triangle edges (within about one triangle of the curve) proves too coarse on real scans.
 - Taking a single boundary off a region (for now: remove that curve, or the region).
 - "Fit, drop faces beyond a tolerance, fit again" to make a fit less dependent on exactly where the boundary was drawn. Painting or lasso only as a fallback.
@@ -106,9 +108,22 @@ Raised in the design discussion; check with the owner before building on any of 
 - Fitting details: area-weighted fits; a geometric (not algebraic) sphere fit with coverage reported, because shallow joint surfaces constrain the radius poorly; a cylinder's starting axis from the surface normals; an outlier-resistant option.
 - Results per fit: RMS and maximum deviation, coverage, number of faces, a deviation map on the mesh.
 - A **support plane** (touches the mesh at three points, everything else on one side) as the "standing on a table" plane, distinct from a least-squares plane.
-- Orienting a mesh means aligning a coordinate system (built in v0.11) with the scene's axes.
 - A stored sign for plane normals and line directions, with a flip button.
-- Saving: a fitted primitive stores both its input (region, method) and its result, like curves in landmark-json; probably a `primitives` section in that format.
+
+## How orienting meshes works (built in v0.12, asked for by the owner)
+
+- A mesh node has `placement` (null, or `{ rotation: 3 rows, translation }`): scene = rotation · file + translation. Only turning and shifting. The mesh's three.js group carries it (`matrixAutoUpdate` off, `_placeMesh` in `scene-view.js`); picking and Lasso/Box already went through the group's matrix, so they give file coordinates on a moved mesh. **Vertices and everything stored stay in the file's coordinates** (ground rule; landmark-json's "coordinates are the truth").
+- The placement comes from an orientation (kind `orient`, "Orientation", hanging under the mesh; one per mesh, a new one replaces the old), made from the Orient menu: `frame` (a coordinate system on the scene's axes, origin to origin), `line` (a line or cylinder axis turned onto `axis`, default '+z', its point to the origin), `plane` (normal onto `axis`, default '-z', standing on it). Line and plane use the smallest turn (`rotationBetween`); the turn about that axis is left as it falls. Inputs must belong to the mesh that moves (not objects made from several meshes). It follows its inputs like any made object; removing it, or Orient ▸ Back to the file's position, sets `placement` back to null. When an orientation is made, the view is framed again.
+- Objects made from objects on different meshes (top level) are worked out in scene coordinates: `ConstructionEngine._input` moves each input with its mesh's placement (`nodeInScene`), and they are made again when one of those meshes moves.
+- Properties: for something on a moved mesh, numbers "In the scene" (default) or "As in the file" (`describe(model, id, { space })`; Copy numbers follows). A mesh shows its placement (turn rows and shift, also in its copy row). A mesh made from a region gets a copy of its original's placement (a snapshot).
+
+## How saving works (built in v0.12; the owner chose both forms)
+
+- **Scene file** (File ▸ Save scene, Ctrl+S): `.bonefitter.json`, `format: "bonefitter-scene"`, version 0.1.0. `meshes`: id, name, file, sha256, counts, units, visible, placement, `example`, `made_from` (with `meshId` and the region's `faces`, so a mesh made from a region is made again from its original if its own file isn't open). `objects`, in creation order (inputs before what uses them): id, kind, name, parent, visible, template_id, the fields it was made from (`INPUTS` in `scene-file.js`), and `result` (everything computed, except a curve's path and a region's face list) for anyone reading the file. On opening, everything is computed again from its inputs; results in the file are never trusted.
+- Opening (File ▸ Open, or drop): the scene file with its mesh files together; meshes are matched by SHA-256 (the example is made again if needed), ids are new (references remapped), names kept (`SceneModel.add` moves its count past a restored "Curve 7"). A missing mesh stops it, naming the file to open with it.
+- **Landmark files** (File ▸ Save landmark files): one landmark-json (0.2.0, or 0.4.0 if the template has planes) per mesh with something on it. Landmarks of an opened landmark file (its template kept unchanged, and its own curve entries, `rawCurves`, written back) and points clicked on the surface (ad hoc, `P01`…); curves (`C01`…, control points with anchors, length, `points: []`, `sampling.n_points: 0`; with no template of its own, the file's template lists them so Landmarker3D shows them; with an opened template they are ad hoc, `template_id: null`, which Landmarker3D keeps but doesn't show); regions as `surfaces` (`S01`…, `boundary` = curve ids, or null for Lasso/Box, `method`, `side`). `extensions.bonefitter` holds the mesh's scene record (as in the scene file) and `file_ids`. BoneFitter opens such a file in full (`sceneFromLandmarkDoc`), taking landmark positions and curve control points from the file's own entries, so changes made in Landmarker3D win. Objects made from several meshes are only in the scene file (a note says so).
+- Coordinates in both are the mesh files' own; the placement is only in BoneFitter's records. Coordinates are written in full in the scene file and to 6 decimals in landmark entries.
+- The landmark-json spec (the owner's project doc) doesn't yet describe BoneFitter's additions (`closed` on curve entries, `surfaces` fields `method`/`side`/`label`, `extensions.bonefitter`); propose them to the owner before relying on them elsewhere.
 
 ## Clicking on a curve's own points (fixed in v0.11.1, reported by the owner)
 
@@ -205,7 +220,9 @@ A BoneFitter template would list steps (select a region, fit a primitive, constr
 
 ## Not done yet
 
-- Moving meshes (orienting by a coordinate system); saving the scene (curves, regions, fits, points, lines, coordinate systems, measurements) and exporting all the numbers at once.
+- Exporting all the numbers at once (one table of every measurement and fit).
+- Moving a mesh by typed or dragged amounts (only orienting is built); a support ("table") plane.
+- The toolbar is full at 1280 px wide (File, nine menus, View): a further menu needs grouping or a second row.
 - Dragging a placed point; more ways to make points (projected onto a plane or line, typed coordinates) and lines (through a point parallel to another line).
 - A support plane (standing on a table) is still only proposed; the least-squares plane is not that.
 - A deviation map on the mesh, and refitting without faces beyond a tolerance (both proposed).

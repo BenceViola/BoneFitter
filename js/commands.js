@@ -78,6 +78,30 @@ export const INPUTS = {
     none: 'There is no point yet. Place one with Point ▸ Click on a surface, or fit a sphere.',
   },
   frame: { ask: 'a coordinate system (Axes)', accepts: made('frame'), none: 'There is no coordinate system yet. Make one from the Axes menu.' },
+  // What can orient a mesh: it must belong to one mesh, the one that moves.
+  meshFrame: {
+    ask: 'a coordinate system (Axes) on the mesh to move',
+    accepts: (ctx, node) => onOneMesh(made('frame')(ctx, node), node),
+    none: 'There is no coordinate system on a mesh yet. Make one from the Axes menu, from objects on that mesh.',
+  },
+  meshLine: {
+    ask: 'a line (or a cylinder: its axis) on the mesh to move',
+    accepts: (ctx, node) => onOneMesh((node.kind === 'cylinder' ? made('cylinder') : made('line'))(ctx, node), node),
+    none: 'There is no line on a mesh yet. Make one from the Line menu, or fit a cylinder.',
+  },
+  meshPlane: {
+    ask: 'a plane on the mesh to move',
+    accepts: made('plane'),
+    none: 'There is no plane yet. Fit one from the Plane menu.',
+  },
+  movedMesh: {
+    ask: 'a mesh that has been moved',
+    accepts: (ctx, node) => {
+      if (node.kind !== 'mesh') return false;
+      return node.placement ? true : `“${node.name}” is where its file puts it already.`;
+    },
+    none: 'No mesh has been moved.',
+  },
   // What has a centroid.
   centroid: {
     ask: 'a region or a curve',
@@ -130,6 +154,20 @@ const fitToRegion = (kind, input = 'region') => ({
   title: `Fit a ${kind} to the part of the mesh a region covers`,
   inputs: [input],
   run: (ctx, [node]) => ctx.fits.create(regionOf(ctx, node).id, kind),
+});
+
+// An object made from several meshes belongs to none of them, so it can't say which to move.
+function onOneMesh(verdict, node) {
+  if (verdict !== true) return verdict;
+  return node.parent ? true : `“${node.name}” is made from objects on more than one mesh, so it doesn't belong to one mesh to move.`;
+}
+const orient = (id, label, title, inputs, method, short) => ({
+  id,
+  label,
+  title,
+  inputs,
+  short,
+  run: (ctx, nodes) => ctx.constructs.create('orient', method, nodes.map((n) => n.id)),
 });
 
 const point = (id, label, title, inputs, method, short) => ({
@@ -223,6 +261,27 @@ export const MENUS = [
     commands: [
       frame('frame-directions', 'From an origin and two directions', 'A coordinate system: its origin at a point, one axis along a line or a plane\'s normal, a second squared up to another', ['point', 'direction', 'direction'], 'point-directions', 'Axes with origin here'),
       frame('frame-points', 'From three points', 'A coordinate system: its origin at the first point, one axis towards the second, a second axis leaning towards the third', ['point', 'point', 'point'], 'three-points', 'Axes from three points'),
+    ],
+  },
+  {
+    kind: 'orient',
+    label: 'Orient',
+    commands: [
+      orient('orient-frame', 'By a coordinate system', 'Move the mesh so a coordinate system on it lies on the scene\'s axes: its origin at the scene\'s origin', ['meshFrame'], 'frame', 'Orient by these axes'),
+      orient('orient-line', 'By a line', 'Turn the mesh so a line on it points along an axis of the scene (Z at first), its point at the origin', ['meshLine'], 'line', 'Orient along this line'),
+      orient('orient-plane', 'Stand on a plane', 'Turn the mesh so it stands on a plane: the plane\'s normal points down (−Z), its point at the origin', ['meshPlane'], 'plane', 'Stand on this plane'),
+      {
+        id: 'orient-reset',
+        label: 'Back to the file\'s position',
+        title: 'Put the mesh back where its file puts it',
+        inputs: ['movedMesh'],
+        short: 'Back to the file\'s position',
+        run: (ctx, [mesh]) => {
+          for (const o of ctx.model.children(mesh.id).filter((n) => n.kind === 'orient')) ctx.model.remove(o.id);
+          ctx.model.update(mesh.id, { placement: null });
+          return mesh;
+        },
+      },
     ],
   },
   {

@@ -6,17 +6,17 @@ A lightweight tool for fitting geometric primitives (lines, planes, spheres, cyl
 
 Nothing to install. Meshes are read on your own computer and never uploaded.
 
-## Where it stands (v0.11)
+## Where it stands (v0.12)
 
-The foundation, curves drawn on a mesh, regions enclosed by closed curves, spheres, cylinders and planes fitted to them, and new meshes made from regions. Constructing, measuring, moving meshes and saving the scene come next.
+Curves drawn on a mesh, regions enclosed by them or selected on the screen, spheres, cylinders and planes fitted to them, points and lines made from them, coordinate systems, measurements, orienting meshes, new meshes made from regions, and saving it all.
 
 - Opens binary and ASCII **STL** and **PLY** triangle meshes, several at once, each shown where its file puts it.
 - **Objects** (left): every mesh, with what is attached to it nested underneath. Click a name to select it, the eye to hide or show it.
 - **Properties** (left, below): the facts and numbers of the selected object, with a button to copy them for a spreadsheet.
-- **3D view** (right): click a mesh or anything on it to select it. Above it: Open, the menus, and **View** (look along an axis, fit everything in view).
+- **3D view** (right): click a mesh or anything on it to select it. Above it: the **File** menu, the menus for making things, and **View** (the eye: look along an axis, fit everything in view).
 - **Tools** (the strip of buttons beside the 3D view) decide what the mouse does there: **Select** (the usual: click to select, drag to turn), **Curve**, **Point**, **Lasso** and **Box**.
 - **Making things** works from either end:
-  - *Start from what you want.* The menus above the 3D view (**Region**, **Sphere**, **Cylinder**, **Plane**, **Point**, **Line**, **Axes**, **Measure**) list the ways to make each. Choose one, and if what is selected suits, it is made at once; otherwise a strip asks for what it needs ("Click a region or a closed curve") and you click it in the 3D view or in the Objects list. Esc cancels.
+  - *Start from what you want.* The menus above the 3D view (**Region**, **Sphere**, **Cylinder**, **Plane**, **Point**, **Line**, **Axes**, **Orient**, **Measure**) list the ways to make each. Choose one, and if what is selected suits, it is made at once; otherwise a strip asks for what it needs ("Click a region or a closed curve") and you click it in the 3D view or in the Objects list. Esc cancels.
   - *Start from what you have.* Select an object, and Properties offer what can be **made from this** and **measured from this** in one click: a sphere, cylinder, plane or new mesh from a region; a region or a plane from a curve; a distance from a point. Only what can be finished with the objects already in the scene is offered.
 - **Curves**: with the Curve tool on, click points on a mesh and the app joins them by the shortest path across the surface. A curve can be left open or closed into a loop. It is listed under its mesh, with its length and centroid in Properties, and its clicked points can be dragged afterwards.
 - **Regions**: Region ▸ Inside a closed curve gives the part of the mesh the curve encloses, tinted on the mesh, with its area, triangle count and centroid in Properties. "Use the other side" takes the rest of the surface instead. Further closed curves can be added as boundaries, for a region with a hole or the band between two rings. A region follows its curves when their points are moved. Its edge runs along triangle edges, within about one triangle of the curve.
@@ -30,6 +30,8 @@ The foundation, curves drawn on a mesh, regions enclosed by closed curves, spher
 - Wherever a point is asked for, a sphere counts as its centre: a line through the centres of two spheres needs no extra points. Made points and lines remember what they were made from and follow it: move a curve's point, and the region, the sphere, its centre and the line through it all move with it. Remove one, and what was made from it goes too.
 - **Measuring** (Measure menu): the distance between two points, from a point to a line or a plane, between two lines; the angle between lines and/or planes, at a point between two others, and between two lines seen on a plane (torsion and version angles: on the plane square to a bone's long axis, given by that axis itself). A point's coordinates in a coordinate system. Each measurement is an object in the list, with its value beside its name; it follows what it measures, and Copy numbers gives a row for a spreadsheet. On the example, the angle between the shaft and neck axes comes out at 55°, or 125° with the shaft's axis flipped to point down (as built).
 - **Coordinate systems** (Axes menu): from an origin and two directions (lines, plane normals, cylinder axes), or from three points (origin, a point the first axis goes towards, a point the second leans towards). The first direction gives one axis exactly, the second is squared up to it, the third makes it right-handed; which axes they give (X, Y or Z) is chosen in Properties. Drawn as red, green and blue arrows for X, Y and Z.
+- **Orienting meshes** (Orient menu): put a coordinate system on the scene's axes; turn a line (the shaft axis, say) to point along an axis (+Z at first; changed in Properties); or stand the mesh on a plane (a plane under the condyles: its normal points down, −Z). The orientation follows its inputs and can be removed or undone (Orient ▸ Back to the file's position). Turning and shifting only, never scaling. The mesh file and every stored coordinate stay as they were; for something on a moved mesh, Properties show the numbers **in the scene** (where it now is) or **as in the file**. Objects made from two meshes are worked out where the meshes now are.
+- **Saving** (File menu): **Save scene** (Ctrl+S) writes one `.bonefitter.json` file with every mesh's work, and where the meshes sit. Open it again together with its mesh files (select or drop them all at once); the meshes are recognised by their SHA-256, and everything is worked out again from what it was made from, so moving a curve point afterwards still updates everything after it. Meshes made from regions are made again if their own file isn't there. **Save landmark files** writes a landmark-json file for each mesh: landmarks and clicked points, curves (with a template entry each, so Landmarker3D shows them; it samples their semilandmarks itself) and regions (as "surfaces"), with everything else kept in `extensions.bonefitter`, so BoneFitter opens the full work from it too, taking any landmark or curve changed in Landmarker3D since.
 - Opens **landmark files** (`.lmk.json`) from Landmarker3D: the landmarks appear as points attached to the mesh they were placed on, matched by the mesh's SHA-256.
 - Starts with an **example**: a toy femur built from exact shapes, so fits can be checked against known answers.
 
@@ -58,7 +60,7 @@ With the **Curve** tool on:
 | Backspace | take the last point off |
 | Esc | remove the curve being drawn; again to leave the tool |
 
-You can also drop meshes and landmark files anywhere on the page.
+You can also drop meshes, scenes and landmark files anywhere on the page. Ctrl+S saves the scene, Ctrl+O opens files.
 
 ## Development
 

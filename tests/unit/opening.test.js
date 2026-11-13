@@ -123,7 +123,7 @@ describe('opening files', () => {
     ]);
     assert.equal(r.opened, 1);
     assert.equal(r.errors.length, 2);
-    assert.match(r.errors[0], /“skull.obj” is not an STL or PLY mesh or a landmark file/);
+    assert.match(r.errors[0], /“skull.obj” is not an STL or PLY mesh, a saved scene \(.bonefitter.json\) or a landmark file/);
     assert.match(r.errors[1], /isn’t valid JSON/);
     assert.equal(model.meshes().length, 1);
   });
@@ -157,7 +157,8 @@ describe('the Properties panel', () => {
     assert.equal(rows(d).Triangles, node.faceCount.toLocaleString('en-US'));
     assert.match(rows(d)['Size (x × y × z)'], /^10\.000 × 10\.000 × 10\.000$/);
     assert.match(rows(d)['SHA-256'], /^[0-9a-f]{12}…$/);
-    assert.match(d.copy.split('\n')[1], /^FEMUR_007\.stl\tFEMUR_007\.stl\t\t\d+\t\d+\t[\d.]+$/, 'a row with the surface area to copy');
+    assert.match(d.copy.split('\n')[1], /^FEMUR_007\.stl\tFEMUR_007\.stl\t\t\d+\t\d+\t[\d.]+\t1\t0\t0\t0\t1\t0\t0\t0\t1\t0\t0\t0$/, 'a row with the surface area, and the placement (not moved), to copy');
+    assert.equal(rows(d).Placement, 'where its file puts it');
     assert.ok(Math.abs(Number(rows(d)['Surface area']) - 4 * Math.PI * 25) < 0.05 * 4 * Math.PI * 25, 'the area of a ball of radius 5');
   });
 
@@ -198,5 +199,35 @@ describe('the Properties panel', () => {
     const free = model.add('point', { name: 'Origin', position: [0, 0, 0] });
     assert.equal(rows(describeNode(model, free.id)).Coordinates, 'of the scene');
     assert.equal(describeNode(model, null), null);
+  });
+});
+
+describe('opening a saved scene', () => {
+  test('a .bonefitter.json opened with its mesh brings the work back; without it, the message names the mesh', async () => {
+    const { scene: makeScene } = await import('../scene-helpers.js');
+    const { sceneDoc, stringify } = await import('../../js/scene-file.js');
+    const s = makeScene();
+    const { ball } = await import('../scene-helpers.js');
+    const { stlBytes } = await import('../../js/mesh-export.js');
+    // A ball saved as an STL file, with a closed curve and its region on it.
+    const geometry = ball(10);
+    const bytes = stlBytes(geometry);
+    const meshFile = { name: 'ball.stl', arrayBuffer: async () => (bytes instanceof ArrayBuffer ? bytes : bytes.buffer).slice(0), text: async () => '' };
+    const appA = { ...s, setBusy() {}, nextFrame: async () => {} };
+    await openFiles(appA, [meshFile]);
+    const [mesh] = s.model.meshes();
+    const curve = s.addCurve(mesh.id, Array.from({ length: 10 }, (_, k) => [6 * Math.cos(k * 0.628), 6 * Math.sin(k * 0.628), 8]));
+    s.regions.create(curve.id);
+    const text = stringify(sceneDoc(s.model));
+    const sceneFile = { name: 'ball.bonefitter.json', text: async () => text };
+
+    const t = makeScene();
+    const appB = { ...t, setBusy() {}, nextFrame: async () => {} };
+    const alone = await openFiles(appB, [sceneFile]);
+    assert.equal(alone.opened, 0);
+    assert.match(alone.errors[0], /^“ball\.bonefitter\.json” needs the mesh “ball\.stl”, which isn’t open\. Open it together with the scene file/);
+    const both = await openFiles(appB, [sceneFile, meshFile]);
+    assert.deepEqual(both.errors, []);
+    assert.deepEqual([...t.model.nodes.values()].map((n) => `${n.kind}:${n.name}`), ['mesh:ball.stl', 'curve:Curve 1', 'region:Region 1']);
   });
 });

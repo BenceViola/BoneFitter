@@ -43,7 +43,11 @@ describe('a new mesh from a region', () => {
     assert.equal(m.file, 'example-femur-region-1.stl', 'the name it is saved under');
     assert.equal(m.faceCount, region.faceCount);
     near(m.area, region.area, 1e-6, 'its surface area is the region\'s');
-    assert.deepEqual(m.madeFrom, { mesh: 'Example femur', region: 'Region 1', boundary: ['Curve 1'], flipped: false });
+    const { faces, meshId, ...from } = m.madeFrom;
+    assert.deepEqual(from, { mesh: 'Example femur', region: 'Region 1', boundary: ['Curve 1'], flipped: false });
+    // Enough to make it again when a saved scene is opened without its file.
+    assert.equal(meshId, mesh.id);
+    assert.deepEqual(faces, Array.from(region.faces));
     assert.equal(m.coordsFile, EXAMPLE.file);
     assert.deepEqual(view.sources.get(mesh.id).attributes.position.array, before);
     assert.deepEqual(model.meshes().map((n) => n.id), [mesh.id, m.id]);
@@ -114,8 +118,8 @@ describe('a new mesh from a region', () => {
     assert.equal(r.Coordinates, `as in ${EXAMPLE.file}`);
     assert.match(r.Note, /does not change when the region does/);
     assert.deepEqual(d.copy.split('\n'), [
-      'name\tfile\tmade_from\ttriangles\tvertices\tsurface_area',
-      ['Region 1 of Example femur', '', 'Region 1 of Example femur', m.faceCount, m.vertexCount, m.area].join('\t'),
+      'name\tfile\tmade_from\ttriangles\tvertices\tsurface_area\tr11\tr12\tr13\tr21\tr22\tr23\tr31\tr32\tr33\tshift_x\tshift_y\tshift_z',
+      ['Region 1 of Example femur', '', 'Region 1 of Example femur', m.faceCount, m.vertexCount, m.area, 1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0].join('\t'),
     ]);
     // Every mesh shows its surface area; an opened one its file.
     const o = rows(describeNode(model, mesh.id));

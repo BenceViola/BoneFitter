@@ -26,6 +26,7 @@ describe('the list of commands', () => {
       ['point', 'Point', ['point-surface', 'point-centre', 'point-centroid', 'point-midpoint', 'point-line-plane']],
       ['line', 'Line', ['line-two-points', 'line-axis', 'line-curve', 'line-perpendicular', 'line-planes']],
       ['frame', 'Axes', ['frame-directions', 'frame-points']],
+      ['orient', 'Orient', ['orient-frame', 'orient-line', 'orient-plane', 'orient-reset']],
       ['measure', 'Measure', ['measure-points', 'measure-point-to', 'measure-lines', 'measure-angle', 'measure-corner', 'measure-on-plane', 'measure-coords']],
     ]);
     for (const m of MENUS) {
@@ -350,5 +351,36 @@ describe('measuring from the menus', () => {
     const r = runner.start('measure-coords');
     assert.equal(r.status, 'nothing');
     assert.match(r.message, /no coordinate system yet/);
+  });
+});
+
+describe('orienting from the menu', () => {
+  test('Orient ▸ Stand on a plane with a plane selected moves its mesh; Back to the file\'s position undoes it', () => {
+    const { runner, model, region, fits, mesh } = setup({ region: true });
+    const plane = fits.create(region.id, 'plane');
+    model.select(plane.id);
+    const r = runner.start('orient-plane');
+    assert.equal(r.status, 'done');
+    assert.equal(r.node.kind, 'orient');
+    assert.ok(model.get(mesh.id).placement);
+    model.select(mesh.id);
+    assert.equal(runner.start('orient-reset').status, 'done');
+    assert.equal(model.get(mesh.id).placement, null);
+    assert.equal(model.children(mesh.id).filter((n) => n.kind === 'orient').length, 0);
+    assert.match(runner.start('orient-reset').message, /“Ball” is where its file puts it already/);
+    model.select(null);
+    assert.match(runner.start('orient-reset').message, /No mesh has been moved/);
+  });
+
+  test('a line made from two meshes can\'t orient either of them', () => {
+    const { runner, model, constructs, mesh } = setup({ region: true });
+    const other = model.add('mesh', { name: 'Other', faceCount: 0 });
+    const a = constructs.placePoint({ id: mesh.id, position: [0, 0, 10], anchor: { face: 0 } });
+    const b = model.add('point', { parent: other.id, method: 'surface', position: [5, 5, 5] });
+    const l = constructs.create('line', 'two-points', [a.id, b.id]);
+    model.select(l.id);
+    const r = runner.start('orient-line');
+    assert.equal(r.status, 'nothing');
+    assert.match(r.message, /made from objects on more than one mesh/);
   });
 });
