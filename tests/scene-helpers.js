@@ -54,7 +54,7 @@ export function scene(cameraPos, target) {
   const ui = { setBusy: (t) => busy.push(t), nextFrame: async () => {} };
   const tool = new CurveTool({ model, picker, engine, view, ui });
   const select = new SelectTool({ model, picker, view, viewer, regions, ui });
-  const constructs = new ConstructionEngine(model);
+  const constructs = new ConstructionEngine(model, (id) => view.sources.get(id) || null);
   const runner = new CommandRunner({ model, regions, fits, constructs });
   const addMesh = (name, geometry) => {
     const node = model.add('mesh', { name, file: `${name}.stl`, faceCount: geometry.attributes.position.count / 3 });

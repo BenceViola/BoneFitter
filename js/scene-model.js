@@ -45,8 +45,8 @@
 // template, when the app gets one, will say which objects to create, and
 // this is the link from an object back to the template step it fulfils.
 
-const PREFIX = { mesh: 'm', group: 'g', point: 'p', line: 'l', frame: 'k', measure: 'd', orient: 'o', curve: 'c', region: 'r', sphere: 's', plane: 'f', cylinder: 'y' };
-const LABEL = { mesh: 'Mesh', group: 'Group', point: 'Point', line: 'Line', frame: 'Axes', measure: 'Measurement', orient: 'Orientation', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
+const PREFIX = { mesh: 'm', group: 'g', point: 'p', line: 'l', frame: 'k', measure: 'd', orient: 'o', section: 'x', curve: 'c', region: 'r', sphere: 's', plane: 'f', cylinder: 'y' };
+const LABEL = { mesh: 'Mesh', group: 'Group', point: 'Point', line: 'Line', frame: 'Axes', measure: 'Measurement', orient: 'Orientation', section: 'Section', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
 
 export class SceneModel extends EventTarget {
   constructor() {

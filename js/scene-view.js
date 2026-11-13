@@ -32,6 +32,7 @@ const MADE_COLOR = 0x7c3aed; // points and lines made from other objects
 const AXIS_COLORS = { x: 0xdc2626, y: 0x16a34a, z: 0x2563eb };
 const FRAME_SIZE = 0.1; // length of a coordinate system's axes, as a share of the scene's diagonal
 const MEASURE_COLOR = 0x0d9488;
+const SECTION_COLOR = 0xe67e22; // a cross-section's outline
 const CURVE_COLOR = 0x0e9fc7;
 const DERIVED = 0x9cc3d8; // a mesh made from a region
 const REGION_COLOR = 0x0e9fc7;
@@ -108,6 +109,20 @@ export class SceneView {
     this.objects.set(node.id, group);
     this.sources.set(node.id, source);
     this.picker.add(node.id, source, group);
+    this._refreshBox();
+  }
+
+  // A mesh's vertices changed (a placement applied to them): draw and pick the new geometry.
+  replaceGeometry(id, source) {
+    const group = this.objects.get(id);
+    if (!group) return;
+    if (!source.boundingBox) source.computeBoundingBox();
+    const surface = group.getObjectByName('surface');
+    surface.geometry.dispose();
+    surface.geometry = displayGeometry(source);
+    this.sources.set(id, source);
+    this.picker.remove(id);
+    this.picker.add(id, source, group);
     this._refreshBox();
   }
 
@@ -316,7 +331,7 @@ export class SceneView {
         else if (FIT_KINDS.has(node?.kind)) this._drawFit(node);
         else if (node?.kind === 'line') this._drawLine(node);
         else if (node?.kind === 'frame') this._drawFrame(node);
-        else if (node?.kind === 'measure') this._drawMeasure(node);
+        else if (node?.kind === 'measure' || node?.kind === 'section') this._drawMeasure(node);
         else if (node?.kind === 'point') this._drawPoint(node);
       }
     }
@@ -342,8 +357,8 @@ export class SceneView {
       obj = this._buildLine();
     } else if (node.kind === 'frame') {
       obj = this._buildFrame();
-    } else if (node.kind === 'measure') {
-      obj = this._buildMeasure();
+    } else if (node.kind === 'measure' || node.kind === 'section') {
+      obj = this._buildMeasure(node.kind === 'section' ? SECTION_COLOR : MEASURE_COLOR);
     } else if (node.kind === 'curve') {
       obj = new THREE.Group();
       obj.userData.curve = true;
@@ -384,7 +399,7 @@ export class SceneView {
     if (FIT_KINDS.has(node.kind)) this._drawFit(node);
     if (node.kind === 'line') this._drawLine(node);
     if (node.kind === 'frame') this._drawFrame(node);
-    if (node.kind === 'measure') this._drawMeasure(node);
+    if (node.kind === 'measure' || node.kind === 'section') this._drawMeasure(node);
     if (obj.userData.marker) this._drawPoint(node);
   }
 
@@ -433,12 +448,14 @@ export class SceneView {
   }
 
   // A measurement: what it measures between, as thin lines (a distance, the arms of an angle).
-  _buildMeasure() {
+  // A cross-section's outline is drawn the same way, in its own colour.
+  _buildMeasure(color = MEASURE_COLOR) {
     const obj = new LineSegments2(
       new LineSegmentsGeometry().setPositions([0, 0, 0, 0, 0, 0]),
-      new LineMaterial({ color: MEASURE_COLOR, linewidth: 1.5, worldUnits: false, depthTest: false, transparent: true, opacity: 0.9 })
+      new LineMaterial({ color, linewidth: 1.5, worldUnits: false, depthTest: false, transparent: true, opacity: 0.9 })
     );
     obj.userData.measure = true;
+    obj.userData.color = color;
     obj.renderOrder = 4;
     return obj;
   }
@@ -454,8 +471,9 @@ export class SceneView {
     obj.geometry.dispose();
     obj.geometry = new LineSegmentsGeometry().setPositions(segments.flatMap(([a, b]) => [...a, ...b]));
     const on = node.id === this.model.selectedId;
-    obj.material.color.setHex(on ? SELECTED : MEASURE_COLOR);
-    obj.material.linewidth = on ? 2.5 : 1.5;
+    obj.material.color.setHex(on ? SELECTED : obj.userData.color);
+    const wide = node.kind === 'section' ? 1 : 0;
+    obj.material.linewidth = (on ? 2.5 : 1.5) + wide;
   }
 
   // A point's marker at its position; hidden while it has none (a made

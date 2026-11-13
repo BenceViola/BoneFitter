@@ -94,6 +94,17 @@ export const INPUTS = {
     accepts: made('plane'),
     none: 'There is no plane yet. Fit one from the Plane menu.',
   },
+  // A plane that belongs to a mesh: the mesh it cuts.
+  cuttingPlane: {
+    ask: 'a plane on the mesh to cut',
+    accepts: (ctx, node) => {
+      const ok = made('plane')(ctx, node);
+      if (ok !== true) return ok;
+      return ctx.model.meshOf(node.id) ? true : `${quoted(node)} is made from objects on more than one mesh. Use Measure ▸ Cross-section of a chosen mesh.`;
+    },
+    none: 'There is no plane yet. Make one from the Plane menu.',
+  },
+  mesh: { ask: 'the mesh to cut', accepts: (ctx, node) => node.kind === 'mesh', none: 'There is no mesh yet. Open one with File ▸ Open.' },
   movedMesh: {
     ask: 'a mesh that has been moved',
     accepts: (ctx, node) => {
@@ -282,11 +293,19 @@ export const MENUS = [
       orient('orient-plane', 'Stand on a plane', 'Turn the mesh so it stands on a plane: the plane\'s normal points down (−Z), its point at the origin', ['meshPlane'], 'plane', 'Stand on this plane'),
       {
         id: 'orient-apply',
-        label: 'Apply to the coordinates (new mesh)',
-        title: 'Make a new mesh whose coordinates are where this one now sits, with its work carried over; the original is kept, hidden',
+        label: 'Apply to the mesh\'s coordinates',
+        title: 'Give the mesh new coordinates, where it now sits; everything on it moves with it. Save the mesh to keep it.',
         inputs: ['movedMesh'],
-        short: 'Apply to the coordinates',
-        run: (ctx, [mesh]) => ctx.actions?.applyPlacement(mesh.id) ?? null,
+        short: 'Apply to its coordinates',
+        run: (ctx, [mesh]) => ctx.actions?.applyPlacement(mesh.id, { copy: false }) ?? null,
+      },
+      {
+        id: 'orient-apply-copy',
+        label: 'Apply to a copy (new mesh)',
+        title: 'Make a new mesh whose coordinates are where this one now sits, with its work carried over; the original is kept as it was, hidden',
+        inputs: ['movedMesh'],
+        short: 'Apply to a copy',
+        run: (ctx, [mesh]) => ctx.actions?.applyPlacement(mesh.id, { copy: true }) ?? null,
       },
       {
         id: 'orient-reset',
@@ -312,6 +331,22 @@ export const MENUS = [
       measure('measure-angle', 'Angle between lines or planes', 'The angle between two lines, a line and a plane, or two planes', ['lineOrPlane', 'lineOrPlane'], 'angle', 'Angle'),
       measure('measure-corner', 'Angle at a point, between two others', 'The angle at a corner point between the directions to two other points', ['corner', 'point', 'point'], 'corner', 'Angle at this point'),
       measure('measure-on-plane', 'Angle between two lines, seen on a plane', 'Two lines as seen on a plane (or on the plane square to a line): torsion and version angles', ['lineLike', 'lineLike', 'reference'], 'on-plane', 'Angle seen on a plane'),
+      {
+        id: 'measure-section',
+        label: 'Cross-section with a plane',
+        title: 'Cut the plane\'s own mesh with it: the outline, its area, perimeter, centroid and second moments of area',
+        inputs: ['cuttingPlane'],
+        short: 'Cross-section',
+        run: (ctx, [plane]) => ctx.constructs.create('section', 'plane', [plane.id]),
+      },
+      {
+        id: 'measure-section-mesh',
+        label: 'Cross-section of a chosen mesh',
+        title: 'Cut a mesh you choose with a plane (the plane may come from another mesh)',
+        inputs: ['plane', 'mesh'],
+        short: 'Cross-section of a mesh',
+        run: (ctx, [plane, mesh]) => ctx.constructs.create('section', 'plane', [plane.id, mesh.id]),
+      },
       measure('measure-coords', 'Coordinates of a point in a coordinate system', 'Where a point is in a coordinate system (Axes)', ['point', 'frame'], 'coords', 'Coordinates in axes'),
     ],
   },

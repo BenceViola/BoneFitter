@@ -232,3 +232,68 @@ describe('a plane square to a line', () => {
     assert.equal(p.normal, null);
   });
 });
+
+describe('cross-sections', () => {
+  const polygonArea = (n, r) => 0.5 * n * r * r * Math.sin((2 * Math.PI) / n);
+  const polygonI = (n, r) => (n * r ** 4 * Math.sin((2 * Math.PI) / n) * (2 + Math.cos((2 * Math.PI) / n))) / 24;
+  const planeAt = (point, normal) => ({ point, normal, d: dot(point, normal) });
+
+  async function femur() {
+    const s = scene([0, 0, 300], EXAMPLE.shaft.point);
+    const loaded = await loadMeshBuffer(makeExampleStl(), EXAMPLE.file);
+    const mesh = s.model.add('mesh', { name: 'Example femur', file: EXAMPLE.file, faceCount: loaded.faceCount });
+    s.view.addMesh(mesh, loaded.geometry);
+    return { ...s, mesh };
+  }
+
+  test('a plane across the shaft of the example: one closed outline, the rod\'s area, centroid on its axis, equal second moments', async () => {
+    const { model, constructs, mesh } = await femur();
+    const mid = EXAMPLE.shaft.point.map((v, i) => v + 50.5 * EXAMPLE.shaft.direction[i]);
+    const plane = model.add('plane', { parent: mesh.id, ...planeAt(mid, [0, 1, 0]) });
+    const s = constructs.create('section', 'plane', [plane.id]);
+    assert.equal(s.kind, 'section');
+    assert.equal(s.parent, mesh.id, 'hangs under the mesh it cuts');
+    assert.equal(s.name, 'Section 1');
+    assert.equal(s.error, null);
+    assert.equal(s.loopCount, 1);
+    assert.equal(s.holeCount, 0);
+    near(s.area, polygonArea(64, 7), 1e-3);
+    nearVec(s.centroid, mid, 1e-4);
+    near(s.moments.Iu, polygonI(64, 7), 1e-2);
+    near(s.moments.Iv, polygonI(64, 7), 1e-2);
+    near(s.moments.J, 2 * polygonI(64, 7), 2e-2);
+    assert.ok(s.segments.length >= 64, 'drawn as lines');
+    // It follows the plane.
+    model.update(plane.id, planeAt(mid.map((v, i) => v + 10 * EXAMPLE.shaft.direction[i]), [0, 1, 0]));
+    near(model.get(s.id).centroid[1], mid[1] + 10, 1e-4);
+    // A plane past the end of the bone: no section, and why.
+    model.update(plane.id, planeAt(mid.map((v, i) => v + 500 * EXAMPLE.shaft.direction[i]), [0, 1, 0]));
+    assert.equal(model.get(s.id).error, 'none');
+    assert.equal(model.get(s.id).area, null);
+    // Removed with its plane.
+    model.update(plane.id, planeAt(mid, [0, 1, 0]));
+    assert.equal(model.get(s.id).error, null);
+    model.remove(plane.id);
+    assert.ok(!model.get(s.id), 'removed');
+  });
+
+  test('a plane on one mesh cuts another, where the meshes sit in the scene', () => {
+    const { model, constructs, capA, capB, a, b } = twoBalls();
+    const bPlane = model.add('plane', { parent: b.id, ...planeAt([40, 0, 0], [0, 0, 1]) });
+    const s = constructs.create('section', 'plane', [bPlane.id, a.id]);
+    assert.equal(s.parent, a.id);
+    const big = s.area;
+    assert.ok(big > 0.95 * Math.PI * 100 && big < Math.PI * 100, `through the middle of ball A: ${big}`);
+    // B moved up by 6: its plane is now 6 above the middle of A.
+    model.update(b.id, { placement: { rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: [0, 0, 6] } });
+    const small = model.get(s.id).area;
+    assert.ok(Math.abs(small - Math.PI * 64) < 0.05 * Math.PI * 64, `a circle of radius 8: ${small}`);
+    nearVec(model.get(s.id).centroid, [0, 0, 6], 1e-3);
+    // A moved up by 6 as well: back through its middle (in A's own coordinates).
+    model.update(a.id, { placement: { rotation: [[1, 0, 0], [0, 1, 0], [0, 0, 1]], translation: [0, 0, 6] } });
+    near(model.get(s.id).area, big, 1e-6);
+    nearVec(model.get(s.id).centroid, [0, 0, 0], 1e-3);
+    void capA;
+    void capB;
+  });
+});

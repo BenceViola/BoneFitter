@@ -19,7 +19,7 @@ import { RegionEngine } from './region-engine.js';
 import { SelectTool } from './select-tool.js';
 import { FitEngine } from './fit-engine.js';
 import { ConstructionEngine } from './construction-engine.js';
-import { applyPlacement } from './apply-placement.js';
+import { applyPlacement, applyPlacementInPlace } from './apply-placement.js';
 import { PointTool } from './point-tool.js';
 import { CommandRunner } from './command-runner.js';
 import { MENUS } from './commands.js';
@@ -27,6 +27,7 @@ import { setupMenus } from './menus.js';
 import { meshFromRegion } from './extract.js';
 import { stlBytes, plyBytes } from './mesh-export.js';
 import { saveFile, prepareSaving } from './file-io.js';
+import { sectionSVG, outlineCSV } from './section-image.js';
 
 const $ = (id) => document.getElementById(id);
 
@@ -80,14 +81,14 @@ if (webgl) {
   app.regions = new RegionEngine(model, picker, app.engine);
   app.fits = new FitEngine(model, (id) => view.sources.get(id) || null);
   app.select = new SelectTool({ model, picker, view, viewer, regions: app.regions, ui: app });
-  app.constructs = new ConstructionEngine(model);
+  app.constructs = new ConstructionEngine(model, (id) => view.sources.get(id) || null);
   app.points = new PointTool({ model, picker, view, constructs: app.constructs });
   app.commands = new CommandRunner({
     model,
     regions: app.regions,
     fits: app.fits,
     constructs: app.constructs,
-    actions: { applyPlacement: (id) => applyWithNote(id) },
+    actions: { applyPlacement: (id, how) => applyWithNote(id, how) },
   });
   setupInteraction({
     stage: $('stage'),
@@ -180,12 +181,22 @@ function run(id) {
   return r;
 }
 
-// Orient ▸ Apply to the coordinates: a new mesh, which takes a moment on a big one.
-async function applyWithNote(meshId) {
+// Orient ▸ Apply to the mesh's coordinates, or to a copy: a moment's work on a big mesh.
+async function applyWithNote(meshId, { copy = false } = {}) {
   const mesh = model.get(meshId);
-  setBusy(`Making “${mesh.name}” with its new coordinates…`);
+  const name = mesh.name;
+  setBusy(copy ? `Making a copy of “${name}” with new coordinates…` : `Giving “${name}” its new coordinates…`);
   await nextFrame();
   try {
+    if (!copy) {
+      const node = await applyPlacementInPlace(app, meshId);
+      if (node) {
+        showMessage('note', [
+          `“${name}” has new coordinates, where it sat; everything on it moved with it. It no longer matches “${node.appliedInPlace.file}”: to keep it, save it (Save as STL in its Properties) and save the scene.`,
+        ]);
+      }
+      return node;
+    }
     const node = await applyPlacement(app, meshId);
     if (node) {
       showMessage('note', [
@@ -397,6 +408,66 @@ app.saveMesh = async (id, format) => {
   }
 };
 prepareSaving();
+
+// ---- A cross-section as a picture, or its outline as text --------------------
+
+app.sectionPicture = (id) => {
+  const node = model.get(id);
+  if (node?.kind !== 'section' || node.error) return null;
+  const mesh = model.get(node.parent);
+  const plane = model.get(node.inputs[0]);
+  const m = node.moments;
+  const n = (v) => Number(v).toFixed(2);
+  return sectionSVG(node, {
+    title: `${node.name}: ${mesh?.name ?? ''} cut by ${plane?.name ?? ''}`,
+    lines: [
+      `Area ${n(node.area)} mm² · perimeter ${n(node.perimeter)} mm${m ? ` · Imax ${n(m.Imax)}, Imin ${n(m.Imin)}, J ${n(m.J)} mm⁴` : ''}`,
+      'Seen from the side the plane\'s normal points to; true shape. Red cross: centroid.',
+    ],
+  });
+};
+app.sectionOutline = (id) => {
+  const node = model.get(id);
+  return node?.kind === 'section' && !node.error ? outlineCSV(node) : '';
+};
+
+// SVG text drawn onto a canvas at twice its size, as PNG bytes.
+async function svgToPng(svg) {
+  const url = URL.createObjectURL(new Blob([svg], { type: 'image/svg+xml' }));
+  try {
+    const img = new Image();
+    await new Promise((ok, fail) => {
+      img.onload = ok;
+      img.onerror = () => fail(new Error('The picture could not be drawn.'));
+      img.src = url;
+    });
+    const canvas = document.createElement('canvas');
+    canvas.width = img.width * 2;
+    canvas.height = img.height * 2;
+    canvas.getContext('2d').drawImage(img, 0, 0, canvas.width, canvas.height);
+    const blob = await new Promise((ok) => canvas.toBlob(ok, 'image/png'));
+    return new Uint8Array(await blob.arrayBuffer());
+  } finally {
+    URL.revokeObjectURL(url);
+  }
+}
+
+app.saveSection = async (id, format) => {
+  const svg = app.sectionPicture(id);
+  if (!svg) return null;
+  const node = model.get(id);
+  const filename = `${node.name.replace(/[\\/:*?"<>|]+/g, '-')}.${format}`;
+  try {
+    const data = format === 'svg' ? new TextEncoder().encode(svg) : await svgToPng(svg);
+    const mime = format === 'svg' ? 'image/svg+xml' : 'image/png';
+    const r = await saveFile({ filename, data, types: [{ description: format === 'svg' ? 'SVG picture' : 'PNG picture', accept: { [mime]: [`.${format}`] } }] });
+    if (r.status !== 'cancelled') showMessage('note', [`Saved “${r.name}”.`]);
+    return r;
+  } catch (err) {
+    showMessage('error', [err.message || 'The picture could not be saved.']);
+    return null;
+  }
+};
 
 // ---- Saving the scene, and landmark files ----------------------------------
 

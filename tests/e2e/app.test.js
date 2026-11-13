@@ -1821,7 +1821,7 @@ describe('applying a placement, and a plane square to a line', () => {
     await select(page, 'Sphere 1');
     const shown = vec(await properties(page), 'Centre ');
     await select(page, 'Example femur');
-    await page.locator('#prop-make [data-make="orient-apply"]').click();
+    await page.locator('#prop-make [data-make="orient-apply-copy"]').click();
     await page.waitForFunction(() => window.__bf.model.selected?.name === 'Example femur (oriented)');
     assert.match(await messageText(page), /^Made “Example femur \(oriented\)”: its coordinates are where “Example femur” sat/);
     const p = await properties(page);
@@ -1835,6 +1835,84 @@ describe('applying a placement, and a plane square to a line', () => {
     });
     close(sphere, shown, 0.005, 'the new mesh\'s sphere');
     assert.equal(await page.evaluate(() => [...window.__bf.model.nodes.values()].filter((n) => n.kind === 'orient').length), 1, 'the orientation stays with the original');
+  });
+
+  test('Orient ▸ Apply to the mesh\'s coordinates: the same mesh gets new coordinates; its work moves with it', async () => {
+    const page = await start();
+    await capSphere(page, EXAMPLE.head.centre, EXAMPLE.head.radius);
+    await select(page, 'Region 1');
+    await page.locator('#prop-make [data-make="plane-fit"]').click();
+    await choose(page, 'orient-plane');
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'orient');
+    await select(page, 'Sphere 1');
+    const shown = vec(await properties(page), 'Centre ');
+    const meshId = await page.evaluate(() => window.__bf.model.meshes()[0].id);
+    await select(page, 'Example femur');
+    await page.locator('#prop-make [data-make="orient-apply"]').click();
+    await page.waitForFunction(() => /has new coordinates/.test(document.getElementById('message')?.innerText ?? ''));
+    assert.match(await messageText(page), /^“Example femur” has new coordinates, where it sat/);
+    const state = await page.evaluate(() => {
+      const m = window.__bf.model.meshes();
+      return { count: m.length, id: m[0].id, placement: m[0].placement, file: m[0].file, orients: [...window.__bf.model.nodes.values()].filter((n) => n.kind === 'orient').length };
+    });
+    assert.equal(state.count, 1, 'no new mesh');
+    assert.equal(state.id, meshId, 'the same mesh');
+    assert.equal(state.placement, null, 'nothing left to place: the coordinates are where it sat');
+    assert.equal(state.file, 'example-femur-oriented.stl');
+    assert.equal(state.orients, 0, 'the orientation has done its work');
+    await select(page, 'Sphere 1');
+    const p = await properties(page);
+    close(vec(p, 'Centre '), shown, 0.005, 'the sphere, in the new coordinates');
+    assert.equal(await page.locator('#prop-space-file').count(), 0, 'no longer two ways to show it');
+  });
+
+  test('Measure ▸ Cross-section: a plane across the shaft cuts it; area and second moments; saved as a picture', async () => {
+    const page = await start({ init: () => { delete window.showSaveFilePicker; } });
+    // A plane across the middle of the shaft (as if made from its axis).
+    const mid = EXAMPLE.shaft.point.map((v, i) => v + 50.5 * EXAMPLE.shaft.direction[i]);
+    await page.evaluate(({ mid, n }) => {
+      const m = window.__bf.model.meshes()[0];
+      const p = window.__bf.model.add('plane', { parent: m.id, name: 'Across the shaft', size: 12, point: mid, normal: n, d: mid.reduce((s, v, i) => s + v * n[i], 0) });
+      window.__bf.model.select(p.id);
+    }, { mid, n: EXAMPLE.shaft.direction });
+    await page.locator('#prop-measure [data-make="measure-section"]').click();
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'section');
+    const p = await properties(page);
+    assert.equal(p.name, 'Section 1');
+    assert.equal(p.rows.Cuts, 'Example femur');
+    assert.equal(p.rows.With, 'Across the shaft');
+    assert.equal(p.rows.Outlines, '1 closed');
+    const area = 0.5 * 64 * 49 * Math.sin((2 * Math.PI) / 64);
+    assert.ok(Math.abs(Number(p.rows.Area) - area) < 0.002, `area ${p.rows.Area}`);
+    close(vec(p, 'Centroid '), mid, 0.002, 'centroid on the shaft axis');
+    assert.ok(Math.abs(Number(p.rows['Imax / Imin']) - 1) < 0.01, 'round: the same both ways');
+    // The value shows in the Objects list too, and the outline is drawn: a click on it selects it.
+    assert.match(await page.locator('#tree .tree-name[title="Section 1"] .value').innerText(), /^153\./);
+    await select(page, 'Example femur');
+    const at = await onScreen(page, mid.map((v, i) => v + [7, 0, 0][i]));
+    await clickAt(page, at);
+    await page.waitForFunction(() => window.__bf.model.selected?.kind === 'section');
+    // Saved as SVG and as PNG.
+    const [svg] = await Promise.all([page.waitForEvent('download'), page.locator('#prop-section-svg').click()]);
+    assert.equal(svg.suggestedFilename(), 'Section 1.svg');
+    const svgPath = join(files.dir, 'section.svg');
+    await svg.saveAs(svgPath);
+    const text = await readFile(svgPath, 'utf8');
+    assert.match(text, /^<svg /);
+    assert.match(text, /Example femur cut by Across the shaft/);
+    const [png] = await Promise.all([page.waitForEvent('download'), page.locator('#prop-section-png').click()]);
+    assert.equal(png.suggestedFilename(), 'Section 1.png');
+    const pngPath = join(files.dir, 'section.png');
+    await png.saveAs(pngPath);
+    const bytes = await readFile(pngPath);
+    assert.deepEqual([...bytes.subarray(1, 4)].map((c) => String.fromCharCode(c)).join(''), 'PNG');
+    // Moved past the end of the bone: no section, and why.
+    await page.evaluate(() => {
+      const p = [...window.__bf.model.nodes.values()].find((n) => n.name === 'Across the shaft');
+      window.__bf.model.update(p.id, { point: [p.point[0], p.point[1] + 1000, p.point[2]], d: p.d + 1000 });
+    });
+    await select(page, 'Section 1');
+    assert.match(await page.locator('#properties').innerText(), /does not pass through Example femur/);
   });
 
   test('Plane ▸ Square to a line: the line is its normal; it follows the line', async () => {

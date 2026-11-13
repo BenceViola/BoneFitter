@@ -17,7 +17,7 @@ const dir = (n) => Number(n).toFixed(4);
 // Below this cap angle (degrees) a fitted sphere's size is poorly fixed.
 const SHALLOW_CAP = 30;
 
-const KIND = { mesh: 'Mesh', group: 'Landmark file', point: 'Point', line: 'Line', frame: 'Coordinate system', measure: 'Measurement', orient: 'Orientation', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
+const KIND = { mesh: 'Mesh', group: 'Landmark file', point: 'Point', line: 'Line', frame: 'Coordinate system', measure: 'Measurement', orient: 'Orientation', section: 'Cross-section', curve: 'Curve', region: 'Region', sphere: 'Sphere', plane: 'Plane', cylinder: 'Cylinder' };
 
 // Why curves give no region, for the person looking at it.
 const REGION_PROBLEMS = {
@@ -102,6 +102,8 @@ export function describe(model, id, opts = {}) {
     copy = describeFrame(model, node, rows, space);
   } else if (node.kind === 'measure') {
     copy = describeMeasure(model, node, rows, space);
+  } else if (node.kind === 'section') {
+    copy = describeSection(model, node, rows, space);
   } else if (node.kind === 'point') {
     if (node.code) rows.push(['ID', node.code, true]);
     if (node.status) rows.push(['Status', node.status]);
@@ -366,6 +368,46 @@ function describeMade(model, node, rows, space) {
   ].join('\n');
 }
 
+// The rows for a cross-section. Returns the text to copy, or null.
+function describeSection(model, node, rows, space) {
+  const plane = model.get(node.inputs[0]);
+  const mesh = model.get(node.parent);
+  rows.push(['Cuts', mesh?.name ?? '?']);
+  rows.push(['With', plane?.name ?? '?']);
+  if (node.error) {
+    rows.push(['Problem', node.error === 'none' ? `${plane?.name ?? 'The plane'} does not pass through ${mesh?.name ?? 'the mesh'}. Move the plane, or choose another mesh.` : madeProblem(model, node)]);
+    return null;
+  }
+  const closed = node.loopCount - node.openCount;
+  const parts = [`${closed} closed`];
+  if (node.holeCount) parts.push(`${node.holeCount} of them inside another (a hole)`);
+  if (node.openCount) parts.push(`${node.openCount} open`);
+  rows.push(['Outlines', parts.join(', ')]);
+  rows.push(['Area', num(node.area), true]);
+  rows.push(['Perimeter', num(node.perimeter), true]);
+  if (node.centroid) ['x', 'y', 'z'].forEach((axis, i) => rows.push([`Centroid ${axis}`, num(node.centroid[i]), true]));
+  const m = node.moments;
+  if (m) {
+    rows.push(['Iu (about u)', num(m.Iu), true]);
+    rows.push(['Iv (about v)', num(m.Iv), true]);
+    rows.push(['Iuv', num(m.Iuv), true]);
+    rows.push(['Imax', num(m.Imax), true]);
+    rows.push(['Imin', num(m.Imin), true]);
+    rows.push(['Imax / Imin', num(m.Imin > 0 ? m.Imax / m.Imin : 0), true]);
+    rows.push(['J (polar)', num(m.J), true]);
+    rows.push(['Imax axis', `${Number(m.angle).toFixed(1)}° from u towards v`]);
+  }
+  ['x', 'y', 'z'].forEach((axis, i) => rows.push([`u ${axis}`, dir(node.u[i]), true]));
+  ['x', 'y', 'z'].forEach((axis, i) => rows.push([`v ${axis}`, dir(node.v[i]), true]));
+  rows.push(['Coordinates', space]);
+  rows.push(['Note', 'Second moments of area are about the centroid, in the plane\'s own axes u and v (u × v = the normal). The area is inside the closed outlines, holes taken away: for a hollow bone, the cortical area.']);
+  if (node.openCount) rows.push(['Note', 'Some outlines are open (the mesh has holes where the plane cuts it), so they enclose no area.']);
+  const head = ['name', 'mesh', 'plane', 'outlines', 'holes', 'open', 'area', 'perimeter', 'centroid_x', 'centroid_y', 'centroid_z', 'Iu', 'Iv', 'Iuv', 'Imax', 'Imin', 'J', 'imax_angle', 'u_x', 'u_y', 'u_z', 'v_x', 'v_y', 'v_z'];
+  const c = node.centroid ?? ['', '', ''];
+  const mm = m ? [m.Iu, m.Iv, m.Iuv, m.Imax, m.Imin, m.J, m.angle] : ['', '', '', '', '', '', ''];
+  return [head.join('\t'), [node.name, mesh?.name ?? '', plane?.name ?? '', node.loopCount, node.holeCount, node.openCount, node.area, node.perimeter, ...c, ...mm, ...node.u, ...node.v].join('\t')].join('\n');
+}
+
 // Why a coordinate system or a measurement has no result.
 function madeProblem(model, node) {
   const failing = node.inputs?.map((id) => model.get(id)).find((n) => n && (n.error || n.drawing || (n.kind === 'point' && !n.position)));
@@ -383,6 +425,7 @@ const deg = (v) => `${Number(v).toFixed(2)}°`;
 
 // A measurement's value in a few characters, for the Objects list.
 export function measureText(node) {
+  if (node.kind === 'section') return node.error || node.area === null ? '' : num(node.area);
   if (node.error || (node.value === null && !node.values)) return '';
   if (node.unit === 'degrees') return deg(node.value);
   if (node.unit === 'coordinates') return '';
@@ -545,6 +588,7 @@ export function setupProperties(el, { model, copyText, app }) {
         ${node.kind === 'plane' && !node.error ? '<button type="button" class="btn small" id="prop-flip-fit" title="Turn the normal the other way; the plane stays where it is">Flip normal</button>' : ''}
         ${node.kind === 'cylinder' && !node.error ? '<button type="button" class="btn small" id="prop-flip-fit" title="Turn the axis direction the other way; the axis stays where it is">Flip direction</button>' : ''}
         ${node.kind === 'line' && !node.error ? '<button type="button" class="btn small" id="prop-flip-line" title="Turn the direction the other way; the line stays where it is">Flip direction</button>' : ''}
+        ${node.kind === 'section' && !node.error ? '<button type="button" class="btn small" id="prop-section-svg" title="Save the outline as a picture (SVG), with a scale bar">Save as SVG</button><button type="button" class="btn small" id="prop-section-png" title="Save the outline as a picture (PNG), with a scale bar">Save as PNG</button><button type="button" class="btn small" id="prop-section-csv" title="Copy the outline\'s points (comma-separated: u, v and x, y, z)">Copy outline</button>' : ''}
         ${node.kind === 'mesh' ? '<button type="button" class="btn small" id="prop-save-stl" title="Save this mesh as a binary STL file">Save as STL</button><button type="button" class="btn small" id="prop-save-ply" title="Save this mesh as a binary PLY file">Save as PLY</button>' : ''}
         <button type="button" class="btn small" id="prop-remove">Remove</button>
       </div>
@@ -597,6 +641,14 @@ export function setupProperties(el, { model, copyText, app }) {
       // A plane square to a line is made, not fitted.
       if (model.get(id).inputs) app.constructs.set(id, { flipped: !model.get(id).flipped });
       else app.fits.set(id, { flipped: !model.get(id).flipped });
+    } else if (e.target.id === 'prop-section-svg' || e.target.id === 'prop-section-png') {
+      await app.saveSection(id, e.target.id === 'prop-section-svg' ? 'svg' : 'png');
+    } else if (e.target.id === 'prop-section-csv') {
+      const ok = await copyText(app.sectionOutline(id));
+      e.target.textContent = ok ? 'Copied' : 'Could not copy';
+      setTimeout(() => {
+        if (e.target.isConnected) e.target.textContent = 'Copy outline';
+      }, 1500);
     } else if (e.target.id === 'prop-flip-line') {
       app.constructs.set(id, { flipped: !model.get(id).flipped });
     } else if (e.target.id === 'prop-flip') {

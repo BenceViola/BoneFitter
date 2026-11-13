@@ -60,6 +60,14 @@ export function rotationBetween(a, b) {
   return [0, 1, 2].map((i) => [0, 1, 2].map((j) => (i === j ? 1 : 0) + K[i][j] + K2[i][j] * f));
 }
 
+// One placement after another: `second` applied to where `first` put things.
+export function compose(second, first) {
+  const R2 = second.rotation;
+  const R1 = first.rotation;
+  const rotation = [0, 1, 2].map((i) => [0, 1, 2].map((j) => R2[i][0] * R1[0][j] + R2[i][1] * R1[1][j] + R2[i][2] * R1[2][j]));
+  return { rotation, translation: place(second, first.translation) };
+}
+
 // The 16 numbers of the placement as a three.js Matrix4 takes them (column by column).
 export function matrixElements(pl) {
   const p = pl ?? IDENTITY;
@@ -71,7 +79,7 @@ export function matrixElements(pl) {
 // Fields of an object that are points, lists of points, and directions.
 const POINTS = ['position', 'centre', 'point', 'origin', 'foot', 'centroid'];
 const POINT_LISTS = ['ends', 'line'];
-const DIRECTIONS = ['normal', 'direction', 'x', 'y', 'z', 'delta'];
+const DIRECTIONS = ['normal', 'direction', 'x', 'y', 'z', 'delta', 'u', 'v'];
 
 // A copy of an object (a tree node) with every position and direction in it
 // moved with the mesh: what it is in scene coordinates. Lengths, angles and
@@ -82,6 +90,7 @@ export function nodeInScene(node, pl) {
   for (const k of POINTS) if (Array.isArray(node[k]) && node[k].length === 3 && typeof node[k][0] === 'number') out[k] = place(pl, node[k]);
   for (const k of POINT_LISTS) if (Array.isArray(node[k]) && Array.isArray(node[k][0])) out[k] = node[k].map((p) => place(pl, p));
   for (const k of DIRECTIONS) if (Array.isArray(node[k]) && node[k].length === 3 && typeof node[k][0] === 'number') out[k] = turn(pl, node[k]);
+  if (Array.isArray(node.loops)) out.loops = node.loops.map((l) => ({ ...l, points: l.points.map((p) => place(pl, p)) }));
   if (Array.isArray(node.segments)) out.segments = node.segments.map((s) => s.map((p) => place(pl, p)));
   if (Array.isArray(node.control_points)) out.control_points = node.control_points.map((c) => ({ ...c, position: place(pl, c.position) }));
   // A plane's equation n · x = d moves with it.

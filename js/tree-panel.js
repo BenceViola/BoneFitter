@@ -13,6 +13,7 @@ const ICONS = {
   frame: '<path d="M3 13V3M3 13h10M3 13l6-4"/>',
   orient: '<path d="M13.5 8A5.5 5.5 0 1 1 8 2.5"/><path d="M8 0.5v4l2.5-2z" fill="currentColor"/>',
   measure: '<path d="M1.5 10.5 10.5 1.5l4 4-9 9z"/><path d="M4.5 7.5l1.5 1.5M6.5 5.5l1.5 1.5M8.5 3.5l1.5 1.5"/>',
+  section: '<path d="M1.5 6.5h13M1.5 6.5 4 12.5h8l2.5-6"/><ellipse cx="8" cy="6.5" rx="4" ry="1.6"/>',
   curve: '<path d="M2 12c2-8 4-8 6-3s4 4 6-5"/>',
   region: '<path d="M3 6c1-3 6-4 9-2s2 7-1 8-9-2-8-6z"/>',
   sphere: '<circle cx="8" cy="8" r="6"/><ellipse cx="8" cy="8" rx="6" ry="2.2"/>',
@@ -47,7 +48,7 @@ export function setupTree(el, model) {
         ? `<span class="count">${kids.length}</span>`
         : node.error
           ? '<span class="count problem" title="There is a problem: see Properties">!</span>'
-          : node.kind === 'measure'
+          : node.kind === 'measure' || node.kind === 'section'
             ? `<span class="count value">${measureText(node)}</span>`
             : '';
     return `<li data-id="${node.id}">

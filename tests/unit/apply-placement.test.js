@@ -105,3 +105,64 @@ describe('applying a placement to a mesh\'s coordinates', () => {
     assert.equal(t.model.meshes().find((x) => x.example && !x.appliedFrom).visible, false);
   });
 });
+
+describe('applying a placement to the mesh itself', () => {
+  test('the mesh\'s own coordinates change; it stays the same object, with the same ids; its orientation goes', async () => {
+    const { applyPlacementInPlace } = await import('../../js/apply-placement.js');
+    const s = await oriented();
+    const src = s.view.sources.get(s.mesh.id).attributes.position;
+    const old = [0, 1234, src.count - 1].map((i) => [src.getX(i), src.getY(i), src.getZ(i)]);
+    const ids = [...s.model.nodes.keys()].filter((id) => !s.model.get(id).kind.startsWith('orient'));
+    const oldSha = s.mesh.sha256;
+    const pBefore = s.p.position.slice();
+    const centreBefore = s.sphere.centre.slice();
+    const m = await applyPlacementInPlace(app(s), s.mesh.id);
+    assert.equal(m.id, s.mesh.id);
+    assert.equal(m.name, 'Example femur');
+    assert.equal(m.file, 'example-femur-oriented.stl');
+    assert.equal(m.placement, null);
+    assert.notEqual(m.sha256, oldSha);
+    assert.deepEqual(m.appliedInPlace, { file: EXAMPLE.file, sha256: oldSha, placement: s.placement });
+    // Its vertices: placed.
+    const now = s.view.sources.get(m.id).attributes.position;
+    [0, 1234, now.count - 1].forEach((i, k) => nearVec([now.getX(i), now.getY(i), now.getZ(i)], place(s.placement, old[k]), 1e-3, `vertex ${i}`));
+    // Everything on it, same ids, in the new coordinates.
+    assert.deepEqual([...s.model.nodes.keys()], ids);
+    nearVec(s.model.get(s.p.id).position, place(s.placement, pBefore), 1e-9);
+    nearVec(s.model.get(s.sphere.id).centre, place(s.placement, centreBefore), 2e-3);
+    nearVec(s.model.get(s.plane.id).normal, [0, 0, -1], 1e-4, 'the plane it stood on is the floor');
+    // Picking works on the new coordinates.
+    const hit = s.picker.pickAt(...(await import('../scene-helpers.js')).screenOf(s.viewer, s.model.get(s.p.id).position));
+    assert.equal(hit?.id, m.id);
+  });
+
+  test('applied twice, it remembers the file it came from and the whole move', async () => {
+    const { applyPlacementInPlace } = await import('../../js/apply-placement.js');
+    const s = await oriented();
+    const first = s.placement;
+    await applyPlacementInPlace(app(s), s.mesh.id);
+    // Turn it a quarter about Z, then apply again.
+    const second = { rotation: [[0, -1, 0], [1, 0, 0], [0, 0, 1]], translation: [5, 0, 0] };
+    s.model.update(s.mesh.id, { placement: second });
+    const m = await applyPlacementInPlace(app(s), s.mesh.id);
+    assert.equal(m.appliedInPlace.file, EXAMPLE.file);
+    const both = (p) => place(second, place(first, p));
+    nearVec(place(m.appliedInPlace.placement, [1, 2, 3]), both([1, 2, 3]), 1e-9);
+    assert.equal(m.file, 'example-femur-oriented.stl');
+  });
+
+  test('a saved scene opened with the original file applies the move again', async () => {
+    const { applyPlacementInPlace } = await import('../../js/apply-placement.js');
+    const s = await oriented();
+    const m = await applyPlacementInPlace(app(s), s.mesh.id);
+    const doc = JSON.parse(stringify(sceneDoc(s.model)));
+    assert.equal(doc.meshes[0].applied_in_place.sha256, m.appliedInPlace.sha256);
+    const t = await femur();
+    await restoreScene(app(t), doc);
+    const back = t.model.meshes()[0];
+    assert.equal(back.sha256, m.sha256);
+    assert.equal(back.file, 'example-femur-oriented.stl');
+    const sphere = [...t.model.nodes.values()].find((n) => n.kind === 'sphere' && n.name === 'Sphere 1');
+    nearVec(sphere.centre, s.model.get(s.sphere.id).centre, 1e-6);
+  });
+});

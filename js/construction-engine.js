@@ -60,6 +60,15 @@
 // never changes them. Computed: placement, error. Removing it puts the mesh
 // back where its file has it.
 //
+// A cross-section (kind 'section', hanging under the mesh it cuts) is where
+// a plane cuts a mesh (section.js):
+//   'plane'  inputs [plane] (the plane's own mesh is cut) or [plane, mesh]
+// The plane is brought into the cut mesh's file coordinates first when it
+// is on another mesh or global. Computed: loops ([{ points, closed, length,
+// area, hole }]), segments (to draw), area, perimeter, centroid, moments,
+// u, v (the plane's axes), origin, normal, loopCount, holeCount, openCount,
+// error ('none': the plane misses the mesh).
+//
 // Coordinates: what hangs under a mesh is in that mesh file's coordinates;
 // what is made from objects on different meshes (global, top level) is in
 // scene coordinates, its inputs moved with their meshes' placements first,
@@ -79,10 +88,11 @@
 // must be brought into scene coordinates here first.
 
 import { midpoint, lineThrough, fitLineToPath, perpendicularTo, planesMeet, lineMeetsPlane } from './construct.js';
-import { nodeInScene, rotationBetween, turn } from './placement.js';
+import { nodeInScene, rotationBetween, turn, inverse } from './placement.js';
+import { sectionOf } from './section.js';
 import { pointToPoint, pointToLine, pointToPlane, lineToLine, angleBetween, cornerAngle, angleOnPlane, makeFrame, inFrame } from './measure.js';
 
-export const CONSTRUCT_KINDS = new Set(['point', 'line', 'plane', 'frame', 'measure', 'orient']);
+export const CONSTRUCT_KINDS = new Set(['point', 'line', 'plane', 'frame', 'measure', 'orient', 'section']);
 
 const AXES = { '+x': [1, 0, 0], '-x': [-1, 0, 0], '+y': [0, 1, 0], '-y': [0, -1, 0], '+z': [0, 0, 1], '-z': [0, 0, -1] };
 export const ORIENT_AXES = Object.keys(AXES);
@@ -93,6 +103,7 @@ const EMPTY = {
   frame: { origin: null, x: null, y: null, z: null },
   orient: { placement: null },
   plane: { point: null, normal: null, d: null, size: 0 },
+  section: { loops: null, segments: null, area: null, perimeter: null, centroid: null, moments: null, u: null, v: null, origin: null, normal: null, loopCount: 0, holeCount: 0, openCount: 0 },
   measure: { value: null, values: null, segments: null, delta: null, signed: null, acute: null, between: null, parallel: null },
 };
 
@@ -137,8 +148,10 @@ export function positionOf(node) {
 }
 
 export class ConstructionEngine {
-  constructor(model) {
+  // `geometryOf(meshId)` gives a mesh's source geometry (for cross-sections).
+  constructor(model, geometryOf = () => null) {
     this.model = model;
+    this.geometryOf = geometryOf;
     model.addEventListener('change', (e) => this._onChange(e.detail));
   }
 
@@ -155,8 +168,9 @@ export class ConstructionEngine {
   // Make a point, line, coordinate system or measurement from other objects. Returns its node.
   create(kind, method, inputs, fields = {}) {
     const meshes = new Set(inputs.map((id) => this.model.meshOf(id)?.id ?? null));
-    const parent = meshes.size === 1 ? [...meshes][0] : null;
-    const extra = { line: { flipped: false }, plane: { flipped: false }, frame: { primary: 'x', secondary: 'y' }, orient: { axis: method === 'plane' ? '-z' : '+z', name: 'Orientation' } }[kind] ?? {};
+    // A cross-section hangs under the mesh it cuts.
+    const parent = kind === 'section' ? (inputs[1] ?? this.model.meshOf(inputs[0])?.id ?? null) : meshes.size === 1 ? [...meshes][0] : null;
+    const extra = { line: { flipped: false }, plane: { flipped: false }, frame: { primary: 'x', secondary: 'y' }, orient: { axis: method === 'plane' ? '-z' : '+z', name: 'Orientation' }, section: { name: this._sectionName() } }[kind] ?? {};
     if (kind === 'orient') {
       // One orientation per mesh: a new one takes the place of the old.
       for (const old of this.model.children(parent).filter((n) => n.kind === 'orient')) this.model.remove(old.id);
@@ -175,6 +189,54 @@ export class ConstructionEngine {
     const node = this.model.add(kind, { ...base, ...this.compute({ ...base, kind }) });
     if (kind === 'orient') this._place(node);
     return node;
+  }
+
+  // "Section 3": one more than the highest in the scene.
+  _sectionName() {
+    let top = 0;
+    for (const n of this.model.nodes.values()) top = Math.max(top, Number(/^Section (\d+)$/.exec(n.name)?.[1] ?? 0));
+    return `Section ${top + 1}`;
+  }
+
+  // Where a plane cuts a mesh, in that mesh's file coordinates.
+  _section(node, inputs) {
+    const fail = (error) => ({ ...EMPTY.section, error });
+    const [planeNode, meshNode] = inputs;
+    const mesh = meshNode ?? this.model.meshOf(planeNode.id);
+    if (mesh?.kind !== 'mesh' || planeNode.kind !== 'plane' || !planeNode.normal || !planeNode.point) return fail('input');
+    let plane = planeNode;
+    const home = this.model.meshOf(planeNode.id);
+    if (home?.id !== mesh.id) {
+      // The plane in the scene, then in the cut mesh's file coordinates.
+      plane = nodeInScene(planeNode, home?.placement ?? null);
+      if (mesh.placement) plane = nodeInScene(plane, inverse(mesh.placement));
+    }
+    const g = this.geometryOf(mesh.id);
+    if (!g) return fail('input');
+    const s = sectionOf(g.attributes.position.array, g.index?.array ?? null, plane);
+    if (s.error) return { ...fail(s.error), u: s.u, v: s.v, origin: s.origin, normal: plane.normal.slice() };
+    const segments = [];
+    for (const l of s.loops) {
+      const p = l.points;
+      for (let i = 1; i < p.length; i++) segments.push([p[i - 1], p[i]]);
+      if (l.closed && p.length > 2) segments.push([p[p.length - 1], p[0]]);
+    }
+    return {
+      loops: s.loops,
+      segments,
+      area: s.area,
+      perimeter: s.perimeter,
+      centroid: s.centroid,
+      moments: s.moments,
+      u: s.u,
+      v: s.v,
+      origin: s.origin,
+      normal: plane.normal.slice(),
+      loopCount: s.loops.length,
+      holeCount: s.loops.filter((l) => l.hole).length,
+      openCount: s.loops.filter((l) => !l.closed).length,
+      error: null,
+    };
   }
 
   // An input as this object sees it: a global object (no mesh of its own)
@@ -229,6 +291,7 @@ export class ConstructionEngine {
     if (inputs.some((n) => !n)) return fail('no-input');
     if (node.kind === 'orient') return this._orient(node, inputs[0]);
     if (node.kind === 'plane') return this._plane(node, inputs);
+    if (node.kind === 'section') return this._section(node, inputs);
     if (node.kind === 'frame' || node.kind === 'measure') {
       const shapes = inputs.map(shapeOf);
       if (shapes.some((s) => !s)) return fail('input');
@@ -376,6 +439,12 @@ export class ConstructionEngine {
         if (this.model.get(id)?.kind !== 'mesh') continue;
         const global = [...this.model.nodes.values()].filter((n) => isConstructed(n) && !n.parent && n.inputs.some((i) => this.model.meshOf(i)?.id === id));
         for (const n of global) this.refresh(n.id);
+        // A cross-section cut by a plane on another mesh: made again when either mesh moves.
+        for (const n of this.model.nodes.values()) {
+          if (n.kind !== 'section' || !isConstructed(n)) continue;
+          const home = this.model.meshOf(n.inputs[0])?.id ?? null;
+          if (home !== n.parent && (home === id || n.parent === id) && !n.inputs.includes(id)) this.refresh(n.id);
+        }
       }
     } else if (kind === 'remove') {
       for (const gone of removed) for (const n of this.dependentsOf(gone.id)) this.model.remove(n.id);

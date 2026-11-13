@@ -26,8 +26,8 @@ describe('the list of commands', () => {
       ['point', 'Point', ['point-surface', 'point-centre', 'point-centroid', 'point-midpoint', 'point-line-plane']],
       ['line', 'Line', ['line-two-points', 'line-axis', 'line-curve', 'line-perpendicular', 'line-planes']],
       ['frame', 'Axes', ['frame-directions', 'frame-points']],
-      ['orient', 'Orient', ['orient-frame', 'orient-line', 'orient-plane', 'orient-apply', 'orient-reset']],
-      ['measure', 'Measure', ['measure-points', 'measure-point-to', 'measure-lines', 'measure-angle', 'measure-corner', 'measure-on-plane', 'measure-coords']],
+      ['orient', 'Orient', ['orient-frame', 'orient-line', 'orient-plane', 'orient-apply', 'orient-apply-copy', 'orient-reset']],
+      ['measure', 'Measure', ['measure-points', 'measure-point-to', 'measure-lines', 'measure-angle', 'measure-corner', 'measure-on-plane', 'measure-section', 'measure-section-mesh', 'measure-coords']],
     ]);
     for (const m of MENUS) {
       for (const c of m.commands) {
@@ -219,7 +219,7 @@ describe('what can be made from the selected object', () => {
     // (Only what the scene can finish: two points, so no axes from three points; no axes yet, so no coordinates.)
     assert.deepEqual(ids(runner.available(p).filter((c) => c.kind !== 'point' && c.kind !== 'line')), ['frame-directions', 'measure-points', 'measure-point-to', 'measure-corner']);
     assert.deepEqual(ids(runner.available(l).filter((c) => c.kind === 'measure')), ['measure-angle'], 'one line: nothing to measure against another line');
-    assert.deepEqual(ids(runner.available(plane).filter((c) => c.kind === 'measure')), ['measure-angle']);
+    assert.deepEqual(ids(runner.available(plane).filter((c) => c.kind === 'measure')), ['measure-angle', 'measure-section', 'measure-section-mesh'], 'a plane on a mesh: cut it (or another mesh)');
     // A landmark that is missing has nothing to offer.
     assert.deepEqual(runner.available(model.add('point', { position: null, status: 'missing' })), []);
   });
@@ -399,5 +399,31 @@ describe('a command that takes a while', () => {
     assert.equal(await r.done, made);
     assert.equal(asked, s.mesh.id);
     assert.equal(s.model.selectedId, made.id);
+  });
+});
+
+describe('cross-sections from the Measure menu', () => {
+  test('a plane on a mesh cuts its own mesh at once; a chosen mesh is asked for', async () => {
+    const { scene, ball } = await import('../scene-helpers.js');
+    const { CommandRunner } = await import('../../js/command-runner.js');
+    const s = scene([0, 0, 100], [0, 0, 0]);
+    const a = s.addMesh('A', ball(10));
+    const b = s.addMesh('B', ball(10, 40));
+    const plane = s.model.add('plane', { parent: b.id, point: [40, 0, 3], normal: [0, 0, 1], d: 3 });
+    const runner = new CommandRunner({ model: s.model, regions: s.regions, fits: s.fits, constructs: s.constructs });
+    s.model.select(plane.id);
+    const r = runner.start('measure-section');
+    assert.equal(r.status, 'done');
+    const own = r.node;
+    assert.equal(own.kind, 'section');
+    assert.equal(own.parent, b.id);
+    assert.ok(own.area > 0);
+    s.model.select(plane.id);
+    assert.equal(runner.start('measure-section-mesh').status, 'asking');
+    assert.match(JSON.stringify(runner.state()), /the mesh to cut/);
+    const other = runner.offer(a.id).node;
+    assert.equal(other.kind, 'section');
+    assert.equal(other.parent, a.id);
+    assert.ok(Math.abs(other.area - own.area) < 1e-3 * own.area, `the same cut of the same ball: ${other.area} vs ${own.area}`);
   });
 });

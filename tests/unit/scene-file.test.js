@@ -53,10 +53,11 @@ async function fullScene() {
   const angle = constructs.create('measure', 'angle', [line.id, plane.id]);
   const coords = constructs.create('measure', 'coords', [placed.id, axes.id]);
   const orient = constructs.create('orient', 'frame', [axes.id]);
+  const section = constructs.create('section', 'plane', [plane.id]);
   model.update(curvePlane.id, { visible: false });
   model.rename?.(open.id, 'Rim');
   const derived = await meshFromRegion({ model, view: s.view }, head.id);
-  return { ...s, nodes: { headLoop, open, head, cond, sphere, condSphere, plane, curvePlane, centre, placed, line, axes, dist, angle, coords, orient }, derived };
+  return { ...s, nodes: { headLoop, open, head, cond, sphere, condSphere, plane, curvePlane, centre, placed, line, axes, dist, angle, coords, orient, section }, derived };
 }
 
 const app = (s, extra = {}) => ({ model: s.model, view: s.view, engine: s.engine, regions: s.regions, fits: s.fits, constructs: s.constructs, ...extra });
@@ -86,6 +87,10 @@ describe('saving a scene', () => {
     assert.equal(curve.result.line, undefined, 'the computed path is left out (it is made again)');
     assert.equal(rec(s.nodes.head.id).result.faces, undefined, 'and a region\'s face list');
     assert.equal(rec(s.nodes.curvePlane.id).visible, false);
+    const section = rec(s.nodes.section.id);
+    assert.deepEqual(section.inputs, [s.nodes.plane.id]);
+    assert.equal(section.result.segments, undefined, 'the outline is written once, as its loops');
+    assert.ok(section.result.loops.length > 0);
     // Plain JSON, nothing lost in writing it.
     assert.deepEqual(JSON.parse(stringify(doc)), doc);
     assert.match(stringify(doc), /"centre": \[-?[\d.]+, -?[\d.]+, -?[\d.]+\]/, 'coordinates on one line');
@@ -104,7 +109,7 @@ describe('opening a saved scene', () => {
     assert.deepEqual([...after.keys()].sort(), [...before.keys()].sort(), 'the same objects, with the same names');
     for (const [key, old] of before) {
       const now = after.get(key);
-      for (const f of ['position', 'centre', 'radius', 'normal', 'direction', 'value', 'values', 'length', 'faceCount', 'area', 'origin', 'x', 'z', 'placement', 'visible', 'flipped', 'primary', 'secondary', 'closed']) {
+      for (const f of ['position', 'centre', 'radius', 'normal', 'direction', 'value', 'values', 'length', 'faceCount', 'area', 'origin', 'x', 'z', 'placement', 'visible', 'flipped', 'primary', 'secondary', 'closed', 'perimeter', 'loopCount', 'moments']) {
         if (old[f] === undefined) continue;
         assert.deepEqual(JSON.parse(JSON.stringify(now[f])), JSON.parse(JSON.stringify(old[f])), `${key} ${f}`);
       }

@@ -19,7 +19,7 @@ import { FIT_KINDS } from './fit-engine.js';
 import { isConstructed } from './construction-engine.js';
 
 export const SCENE_FORMAT = { name: 'bonefitter-scene', version: '0.1.0' };
-export const APP = { name: 'BoneFitter', version: '0.13' };
+export const APP = { name: 'BoneFitter', version: '0.14' };
 
 export class SceneFileError extends Error {}
 
@@ -37,10 +37,13 @@ const INPUTS = {
   frame: ['method', 'inputs', 'primary', 'secondary'],
   measure: ['method', 'inputs'],
   orient: ['method', 'inputs', 'axis'],
+  section: ['method', 'inputs'],
 };
 const META = new Set(['id', 'kind', 'name', 'parent', 'visible', 'template_id']);
 // Computed, but too big to be worth writing: the path of a curve, a region's face list.
 const BIG = new Set(['line', 'faces', 'drawing']);
+// A cross-section's outline is written once, as its loops (not again as lines to draw).
+const SKIP = { section: new Set(['segments']) };
 
 const clone = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 
@@ -62,6 +65,7 @@ export function meshRecord(model, mesh) {
   if (mesh.coordsFile) rec.coords_file = mesh.coordsFile;
   if (mesh.madeFrom) rec.made_from = clone(mesh.madeFrom);
   if (mesh.appliedFrom) rec.applied_from = clone(mesh.appliedFrom);
+  if (mesh.appliedInPlace) rec.applied_in_place = clone(mesh.appliedInPlace);
   return rec;
 }
 
@@ -71,7 +75,7 @@ export function objectRecord(node) {
   for (const k of inputs) if (node[k] !== undefined) rec[k] = clone(node[k]);
   const result = {};
   for (const [k, v] of Object.entries(node)) {
-    if (META.has(k) || inputs.includes(k) || BIG.has(k) || v === undefined) continue;
+    if (META.has(k) || inputs.includes(k) || BIG.has(k) || SKIP[node.kind]?.has(k) || v === undefined) continue;
     result[k] = clone(v);
   }
   if (Object.keys(result).length) rec.result = result;
@@ -142,6 +146,16 @@ export async function restoreScene(app, doc, name = null, { meshMap = null } = {
       continue;
     }
     let mesh = free(rec.sha256);
+    // A mesh whose own vertices were moved: its original file, moved the same way again.
+    if (!mesh && rec.applied_in_place && free(rec.applied_in_place.sha256)) {
+      const original = free(rec.applied_in_place.sha256);
+      const { placedMesh, swapGeometry } = await import('./apply-placement.js');
+      const loaded = await placedMesh(view.sources.get(original.id), rec.applied_in_place.placement, rec.file);
+      if (loaded.sha256 === rec.sha256) {
+        swapGeometry(app, original.id, loaded, { file: rec.file, appliedInPlace: clone(rec.applied_in_place) });
+        mesh = original;
+      }
+    }
     if (!mesh && rec.applied_from && ids.has(rec.applied_from.meshId)) {
       const original = model.get(ids.get(rec.applied_from.meshId));
       const { placedGeometry } = await import('./apply-placement.js');
@@ -164,7 +178,7 @@ export async function restoreScene(app, doc, name = null, { meshMap = null } = {
     if (!mesh) {
       // A mesh made from a region of a missing mesh comes back with its original: name only the original.
       const from = rec.made_from?.faces ? rec.made_from.meshId : rec.applied_from?.meshId;
-      if (!(from && doc.meshes.some((m) => m.id === from))) missing.push(rec.file || rec.name);
+      if (!(from && doc.meshes.some((m) => m.id === from))) missing.push(rec.applied_in_place ? `${rec.file}” or “${rec.applied_in_place.file}` : rec.file || rec.name);
       continue;
     }
     used.add(mesh.id);

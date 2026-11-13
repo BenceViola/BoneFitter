@@ -13,7 +13,7 @@
 
 import { COMMANDS, INPUTS } from './commands.js';
 
-const KIND_WORDS = { mesh: 'a mesh', group: 'a landmark file', point: 'a point', line: 'a line', frame: 'a coordinate system', measure: 'a measurement', orient: 'an orientation', curve: 'a curve', region: 'a region', sphere: 'a sphere', cylinder: 'a cylinder', plane: 'a plane' };
+const KIND_WORDS = { mesh: 'a mesh', group: 'a landmark file', point: 'a point', line: 'a line', frame: 'a coordinate system', measure: 'a measurement', orient: 'an orientation', section: 'a cross-section', curve: 'a curve', region: 'a region', sphere: 'a sphere', cylinder: 'a cylinder', plane: 'a plane' };
 
 export class CommandRunner extends EventTarget {
   constructor({ model, regions, fits, constructs, actions = {} }) {
